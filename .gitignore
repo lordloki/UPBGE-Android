@@ -1,0 +1,32 @@
+# Build artifacts produced under $BUILD_BASE live OUTSIDE this checkout, but
+# a few in-tree scratch directories exist for convenience. Keep them ignored
+# so the repo stays clean.
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Build scratch
+/build/
+/build_*/
+/upbge_src/
+/upbge_android_build_base/
+
+# Local env overrides
+local.env
+
+# Logs
+*.log
+upbge.log
+upbge.png
+debug_reports/
+
+# CI scratch
+/_build_base/
