@@ -1,0 +1,122 @@
+# .github/workflows/build-android.yml
+#
+# CI: cross-compile the UPBGE blenderplayer for Android on every push to main
+# and every tag matching v*, and upload the produced player bundles as
+# GitHub Actions artifacts.
+#
+# Matrix: feature (arm64-v8a is the only target ABI)
+#   feature: player-only, full
+#
+# Total: 2 jobs, ~3-6 h each on a fresh runner (mostly the deps prefix). The
+# deps prefix is cached per feature under
+# ~/.cache/upbge-android-deps/arm64-v8a/<feature> and survives across
+# runs, so subsequent builds take 15-30 min.
+
+name: build-android
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: 'Architecture'
+        required: true
+        default: 'arm64-v8a'
+        type: choice
+        options: [ 'arm64-v8a' ]
+      feature:
+        description: 'Feature set'
+        required: true
+        default: 'player-only'
+        type: choice
+        options: [ 'player-only', 'full' ]
+
+jobs:
+  build:
+    name: ${{ matrix.feature }} / ${{ matrix.arch }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 720
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:    [ arm64-v8a ]
+        feature: [ player-only, full ]
+    env:
+      BUILD_BASE: ${{ github.workspace }}/_build_base
+      UPBGE_SOURCE: ${{ github.workspace }}/upbge_src
+
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Install host prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential gcc-14 g++-14 cmake ninja-build \
+            git curl wget unzip zip python3 python3-pip \
+            openjdk-17-jdk-headless pkg-config autoconf automake libtool \
+            bison flex file
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
+
+      - name: Set up Android SDK + NDK r26d
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0 ndk;r26d'
+
+      - name: Configure environment
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/r26d" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/r26d" >> $GITHUB_ENV
+          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
+          echo "BUILD_BASE=$BUILD_BASE" >> $GITHUB_ENV
+          echo "UPBGE_SOURCE=$UPBGE_SOURCE" >> $GITHUB_ENV
+          mkdir -p "$BUILD_BASE" "$UPBGE_SOURCE"
+
+      - name: Cache dependency prefix
+        id: cache-deps
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.BUILD_BASE }}/lib/android_${{ matrix.arch }}
+          key: deps-${{ matrix.arch }}-${{ matrix.feature }}-${{ hashFiles('build_files/android/deps/**/*.sh') }}
+          restore-keys: |
+            deps-${{ matrix.arch }}-${{ matrix.feature }}-
+            deps-${{ matrix.arch }}-
+
+      - name: Fetch UPBGE source
+        run: bash scripts/fetch_upbge.sh
+
+      - name: Cross-compile dependencies
+        if: steps.cache-deps.outputs.cache-hit != 'true'
+        run: |
+          ARCH=${{ matrix.arch }} FEATURE=${{ matrix.feature }} \
+            bash build_files/android/deps/build.sh
+
+      - name: Build blenderplayer
+        run: |
+          python3 build_files/android/build.py ${{ matrix.feature }} \
+            --arch ${{ matrix.arch }} --repackage
+
+      - name: Verify bundle
+        run: |
+          python3 scripts/verify_build.py --arch ${{ matrix.arch }} -v \
+            "$BUILD_BASE/android_apk_stage_${{ matrix.feature }}_${{ matrix.arch }}"
+
+      - name: Upload player bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: player_bundle_${{ matrix.feature }}_${{ matrix.arch }}
+          path: |
+            ${{ env.BUILD_BASE }}/apk/player_bundle_${{ matrix.feature }}_${{ matrix.arch }}-latest.tar.gz
+            ${{ env.BUILD_BASE }}/logs/deps_${{ matrix.arch }}_${{ matrix.feature }}.log
+          retention-days: 30
+          compression-level: 0  # the tarball is already compressed
+
+      - name: Release on tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.BUILD_BASE }}/apk/player_bundle_${{ matrix.feature }}_${{ matrix.arch }}-latest.tar.gz
+          fail_on_unmatched_files: false
