@@ -1,0 +1,14 @@
+--- a/src/config_linux.h
++++ b/src/config_linux.h
+@@ -22,7 +22,11 @@
+ #define HAVE_USING_OPERATOR 1
+
+ // stack trace handler
+-#ifdef HAVE_EXECINFO_H
++// On Android __linux__ is defined, but Bionic only has <execinfo.h> from API
++// level 33. Build against minSdkVersion=31 -> disable the execinfo path.
++#if defined(HAVE_EXECINFO_H) && !defined(__ANDROID__)
+ #define HAVE_STACKTRACE 1
+ #endif
+
+ #ifdef HAVE_SYSCALL_H

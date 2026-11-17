@@ -1,0 +1,12 @@
+GPL-3.0-or-later
+
+This build system is licensed under the GNU General Public License v3.0 or
+later, matching UPBGE and Blender.
+
+The full text of GPL-3.0 is at https://www.gnu.org/licenses/gpl-3.0.txt and
+is also part of the UPBGE source tree under `COPYING` after `make setup`.
+
+The scripts in this repository are derived from the approach taken by
+Wanderson M. Pimenta's `blender_for_android` (https://github.com/Wanderson-Magalhaes/blender_for_android)
+which is itself GPL-3.0 and based on Simfeo's earlier Android alpha
+(https://github.com/simfeo/blender).

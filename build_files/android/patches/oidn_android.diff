@@ -1,0 +1,17 @@
+--- a/core/common.cpp
++++ b/core/common.cpp
+@@ -12,6 +12,14 @@
+
+ #include <thread>
+
++#if defined(__ANDROID__)
++// Bionic only exposes pthread_setaffinity_np / pthread_getaffinity_np from
++// API level 36. Redirect to the sched_* equivalents so OIDN builds against
+// API 31.
++#  define pthread_setaffinity_np(tid, sz, s) sched_setaffinity((int)(tid), (size_t)(sz), (cpu_set_t*)(s))
++#  define pthread_getaffinity_np(tid, sz, s) sched_getaffinity((int)(tid), (size_t)(sz), (cpu_set_t*)(s))
++#endif
++
+ namespace oidn {
+
+   Thread::Thread(size_t stackSize)

@@ -1,0 +1,5 @@
+# Python dependencies of build.py and verify_build.py.
+# No third-party packages are required — the orchestrator only uses the
+# standard library. Keep this file so the CI workflow and Docker image can
+# `pip install -r requirements.txt` without changing behavior.
+# (Empty by design.)
