@@ -6,17 +6,20 @@
 #                  -v $PWD:/work \
 #                  -w /work \
 #                  upbge-android-builder \
-#                  make setup build-player ARCH=arm64-v8a
+#                  make setup build ARCH=arm64-v8a
 #
 # The volume mount keeps the dependency prefix (~60 GB) outside the container
 # so it survives re-builds.
+#
+# Uses ubuntu:24.04 (noble) because it ships gcc-14 and clang-17 in the base
+# repos; ubuntu:22.04 (jammy) does not have gcc-14 without a PPA.
 
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
-# Host toolchain (GCC 14 + Clang), build tools, JDK 17.
+# Host toolchain (GCC 14 + Clang 17), build tools, JDK 17.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         gcc-14 g++-14 \
@@ -33,6 +36,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         openssh-client \
         && rm -rf /var/lib/apt/lists/*
 
+# Wire /usr/bin/gcc and /usr/bin/clang to the right versions.
+RUN update-alternatives --install /usr/bin/gcc    gcc    /usr/bin/gcc-14    100 \
+ && update-alternatives --install /usr/bin/g++    g++    /usr/bin/g++-14    100 \
+ && update-alternatives --install /usr/bin/clang  clang  /usr/bin/clang-17  100 \
+ && update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-17 100
+
 # Android SDK + command-line tools + NDK r26d.
 ENV ANDROID_HOME=/opt/android-sdk
 ENV ANDROID_NDK_VERSION=r26d
@@ -45,10 +54,11 @@ RUN mkdir -p ${ANDROID_HOME} \
     && cd /tmp \
     && wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
     && unzip -q commandlinetools-linux-11076708_latest.zip -d ${ANDROID_HOME} \
-    && mv ${ANDROID_HOME}/cmdline-tools ${ANDROID_HOME}/cmdline-tools-tmp \
     && mkdir -p ${ANDROID_HOME}/cmdline-tools/latest \
-    && mv ${ANDROID_HOME}/cmdline-tools-tmp/* ${ANDROID_HOME}/cmdline-tools/latest/ \
-    && rmdir ${ANDROID_HOME}/cmdline-tools-tmp \
+    && mv ${ANDROID_HOME}/cmdline-tools/bin    ${ANDROID_HOME}/cmdline-tools/latest/bin \
+    && mv ${ANDROID_HOME}/cmdline-tools/lib    ${ANDROID_HOME}/cmdline-tools/latest/lib \
+    && (mv ${ANDROID_HOME}/cmdline-tools/NOTICE        ${ANDROID_HOME}/cmdline-tools/latest/NOTICE        2>/dev/null || true) \
+    && (mv ${ANDROID_HOME}/cmdline-tools/source.properties ${ANDROID_HOME}/cmdline-tools/latest/source.properties 2>/dev/null || true) \
     && rm commandlinetools-linux-11076708_latest.zip
 
 RUN yes | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null \

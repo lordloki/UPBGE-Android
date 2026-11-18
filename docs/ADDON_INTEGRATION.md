@@ -12,15 +12,13 @@ AndroidManifest and the Java activity. The add-on supplies the *game half*
 
 ## What the add-on consumes
 
-For each `feature` you want to support, download or build the corresponding
-bundle (`arm64-v8a` is the only target ABI):
+For the player-only arm64-v8a bundle, download or build:
 
 ```
 player_bundle_player-only_arm64-v8a.tar.gz
-player_bundle_full_arm64-v8a.tar.gz            (optional)
 ```
 
-Each tarball expands to:
+The bundle expands to:
 
 | Path inside tarball | What it is |
 | --- | --- |
@@ -41,9 +39,8 @@ Recommended UI flow inside Blender:
 
 ```
 [Pick .blend file]
-[Pick player_bundle_<arch>_<feature>.tar.gz]
+[Pick player_bundle_player-only_arm64-v8a.tar.gz]
 [Edit app name (default: "My Game")]
-[Pick feature set: player-only (default) | full]
 [Edit package name (default: org.upbge.player)  -- optional]
 [Pick signing key (.jks) + alias + password]
 [                                          [ Build APK ]]
@@ -185,12 +182,12 @@ For release, use Google Play App Signing:
 | Bundle | Final APK |
 | --- | --- |
 | player-only arm64-v8a | ~80-100 MB |
-| full arm64-v8a | ~220-260 MB |
 
-Because the bundle ships only one ABI, there is no "fat APK" overhead. If you
-later add other ABIs (rare — arm64-v8a covers ~99% of active Android devices),
-ship them as separate APKs or as an Android App Bundle (`.aab`) so Play Store
-delivers only the user's device ABI: `bundletool build-apks --bundle=upbge-game.aab`.
+Because the bundle ships only one ABI and one feature set, there is no "fat
+APK" overhead. If you later add other ABIs (rare — arm64-v8a covers ~99% of
+active Android devices), ship them as separate APKs or as an Android App
+Bundle (`.aab`) so Play Store delivers only the user's device ABI:
+`bundletool build-apks --bundle=upbge-game.aab`.
 
 ## GPL compliance
 

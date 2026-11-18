@@ -8,12 +8,24 @@
 # Host: ubuntu-24.04 (has gcc-14 and clang-17 in the base repos; ubuntu-22.04
 #       does NOT have gcc-14 without a PPA).
 #
+# The Android SDK + NDK are installed by `scripts/install_android_sdk.sh`,
+# which downloads the NDK r26d as a direct .zip from
+#   https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
+# instead of via `sdkmanager "ndk;r26d"` (recent cmdline-tools reject the
+# short `rXX` alias and require the exact numeric package name, e.g.
+# `ndk;26.3.11579264`, which changes with every NDK patch release).
+#
 # The dependency prefix is cached per commit hash of every recipe file, so
 # subsequent runs take ~30 min instead of hours.
 
 name: build-android
 
 on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
@@ -32,16 +44,15 @@ jobs:
       - name: Install host prerequisites (gcc-14, clang-17, cmake, ninja, JDK 17)
         run: bash scripts/setup_host.sh
 
-      - name: Set up Android SDK + NDK r26d
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'platform-tools platforms;android-34 build-tools;34.0.0 ndk;r26d'
+      - name: Install Android SDK + NDK r26d
+        run: bash scripts/install_android_sdk.sh
 
       - name: Configure environment
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/r26d" >> $GITHUB_ENV
-          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/r26d" >> $GITHUB_ENV
+          echo "ANDROID_HOME=$HOME/Android/Sdk" >> $GITHUB_ENV
+          echo "ANDROID_NDK_VERSION=r26d" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$HOME/Android/Sdk/ndk/r26d" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=$HOME/Android/Sdk/ndk/r26d" >> $GITHUB_ENV
           echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
           echo "BUILD_BASE=$BUILD_BASE" >> $GITHUB_ENV
           echo "UPBGE_SOURCE=$UPBGE_SOURCE" >> $GITHUB_ENV
@@ -63,7 +74,7 @@ jobs:
       - name: Cross-compile dependencies
         if: steps.cache-deps.outputs.cache-hit != 'true'
         run: |
-          ARCH=arm64-v8a FEATURE=player-only \
+          ARCH=arm64-v8a \
             bash build_files/android/deps/build.sh
 
       - name: Build blenderplayer
@@ -81,7 +92,7 @@ jobs:
           name: player_bundle_player-only_arm64-v8a
           path: |
             ${{ env.BUILD_BASE }}/apk/player_bundle_player-only_arm64-v8a-latest.tar.gz
-            ${{ env.BUILD_BASE }}/logs/deps_arm64-v8a_player-only.log
+            ${{ env.BUILD_BASE }}/logs/deps_arm64-v8a.log
           retention-days: 30
           compression-level: 0  # the tarball is already compressed
 
@@ -92,4 +103,3 @@ jobs:
           files: |
             ${{ env.BUILD_BASE }}/apk/player_bundle_player-only_arm64-v8a-latest.tar.gz
           fail_on_unmatched_files: false
-          

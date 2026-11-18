@@ -23,7 +23,7 @@ UPBGE itself is at https://github.com/UPBGE/upbge (branch: `master`).
 | Player bundle | `BUILD_BASE/player_bundle_<cfg>_<arch>.tar.gz` | Binary + assets + APK skeleton, ready to wrap |
 | Host codegen | `BUILD_BASE/build_host_tools_<cfg>/bin/makesdna`, `makesrna`, ... | Built with the same feature set as the target |
 
-`<cfg>` is `player-only` or `full`. `<arch>` is always `arm64-v8a`.
+`<cfg>` is always `player-only`. `<arch>` is always `arm64-v8a`.
 
 ## Quickstart
 
@@ -51,7 +51,7 @@ make setup
 make deps ARCH=arm64-v8a
 
 # 7. Build the player binary
-make build-player ARCH=arm64-v8a
+make build ARCH=arm64-v8a
 
 # 8. Package the player bundle for your add-on
 make package ARCH=arm64-v8a
@@ -76,7 +76,7 @@ upbge_android_build/
 │   ├── env.sh                # environment (NDK, SDK, host compiler)
 │   ├── deps/build.sh         # cross-compile dependency prefix
 │   ├── deps/recipes/*.sh     # per-library recipes
-│   ├── features/             # CMake feature toggles (common, full, player_only)
+│   ├── features/             # CMake feature toggles (common, player_only)
 │   ├── toolchain/            # CMake toolchain for Android NDK
 │   ├── patches/              # Android patches applied to UPBGE source
 │   ├── apk/                  # minimal APK skeleton (manifest, activity, glue)

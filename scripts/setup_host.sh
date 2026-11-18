@@ -230,7 +230,7 @@ cat <<EOF
 [setup_host] next steps:
     scripts/install_android_sdk.sh    # or: make setup-sdk
     make setup                        # clone UPBGE + apply patches
-    make deps ARCH=arm64-v8a FEATURE=player-only
-    make build-player ARCH=arm64-v8a
-    make package  ARCH=arm64-v8a FEATURE=player-only
+    make deps ARCH=arm64-v8a    # cross-compile dependencies
+    make build       # build blenderplayer (player-only, arm64-v8a)
+    make package  ARCH=arm64-v8a # assemble + verify the player bundle
 EOF

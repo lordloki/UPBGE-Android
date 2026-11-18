@@ -57,12 +57,11 @@ running `.blend` on a phone.
 | `build_files/android/deps/recipes/*.sh` | One recipe per library. Contract documented in `deps/recipes/README.md`. |
 | `build_files/android/toolchain/android.toolchain.cmake` | CMake toolchain for the NDK. Sets compilers, sysroot, `CMAKE_FIND_ROOT_PATH`, link flags. |
 | `build_files/android/features/common.cmake` | Shared Android toggles: `WITH_ANDROID`, `WITH_GHOST_ANDROID`, Vulkan, audio, Python, etc. |
-| `build_files/android/features/player_only.cmake` | Adds `WITH_BLENDER=OFF`, `WITH_PLAYER=ON`, drops Cycles/OIDN/USD/... |
-| `build_files/android/features/full.cmake` | Adds `WITH_BLENDER=ON`, Cycles, EEVEE Next, OIDN, OpenVDB, USD, ... |
+| `build_files/android/features/player_only.cmake` | `WITH_BLENDER=OFF`, `WITH_PLAYER=ON`, drops Cycles/OIDN/USD/... |
 | `build_files/android/patches/0001-GHOST-Android-minimal-backend.patch` | Wires `WITH_GHOST_ANDROID` into `intern/ghost/CMakeLists.txt` and `source/gameengine/CMakeLists.txt`. |
 | `build_files/android/patches/ghost_android/` | The actual GHOST Android backend files (`.cc` / `.hh`), copied into the tree by `apply_patches.sh`. |
 | `build_files/android/patches/player_entrypoint/` | `android_main_wrapper.cc` + a CMake fragment that builds the player as a shared object on Android. |
-| `build_files/android/patches/oidn_android.diff`, `glog_android.diff` | Same patches Wanderson carries, applied inside the corresponding recipe. |
+| `build_files/android/patches/oidn_android.diff`, `glog_android.diff` | Reference patches Wanderson carries for the `full` feature set. Not applied in current recipes. |
 | `build_files/android/apk/` | APK skeleton: `AndroidManifest.xml`, `MainActivity.java`, `strings.xml`. |
 | `build_files/android/debug.sh` | Read / write `blender_args.txt`, follow logcat, dump crash buffer. |
 | `build_files/android/deploy.sh` | Install, run, capture log + screenshot. |
@@ -70,9 +69,9 @@ running `.blend` on a phone.
 | `scripts/apply_patches.sh` | Idempotent: apply every text patch + copy new files. `--reset` reverts. |
 | `scripts/package_player.sh` | Assemble the stage directory and the unsigned APK (if `aapt2` is present). |
 | `scripts/verify_build.py` | Sanity-check: ELF type, exported `android_main`, payload zip, manifest. |
-| `Makefile` | Convenience wrapper: `setup`, `deps`, `build-player`, `build-full`, `package`, `deploy`, `verify`, `clean-build`, `clean-all`. |
+| `Makefile` | Convenience wrapper: `setup-host`, `setup-sdk`, `setup`, `deps`, `build`, `package`, `deploy`, `verify`, `clean-build`, `clean-all`. |
 | `Dockerfile` | Reproducible build image. Mount `BUILD_BASE` as a volume to keep the deps prefix. |
-| `.github/workflows/build-android.yml` | CI: 2×2 matrix, deps cache, artifact upload, GitHub Release on tag. |
+| `.github/workflows/build-android.yml` | CI: single target (arm64-v8a + player-only), deps cache, artifact upload, GitHub Release on tag. |
 
 ## Data flow: source → device
 

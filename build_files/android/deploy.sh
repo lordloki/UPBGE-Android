@@ -5,14 +5,12 @@ set -euo pipefail
 PKG="org.upbge.player"
 ACTIVITY="$PKG/.MainActivity"
 ARCH="${ARCH:-arm64-v8a}"
-FEATURE="${FEATURE:-player-only}"
 
 usage() {
     cat <<EOF
-usage: deploy.sh [--arch ARCH] [--feature FEATURE] [--apk PATH] [--run] [--log SECS] [--shot]
+usage: deploy.sh [--arch ARCH] [--apk PATH] [--run] [--log SECS] [--shot]
 
-  --arch ARCH       device ABI (default: arm64-v8a)
-  --feature FEATURE player-only | full
+  --arch ARCH       device ABI (default: arm64-v8a; only target supported)
   --apk PATH        explicit APK path; otherwise inferred from BUILD_BASE
   --run             start the activity after install
   --log SECS        capture SECS seconds of logcat to ./upbge.log
@@ -27,7 +25,6 @@ APK=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --arch) ARCH="$2"; shift 2;;
-        --feature) FEATURE="$2"; shift 2;;
         --apk) APK="$2"; shift 2;;
         --run) RUN=1; shift;;
         --log) LOG_SECS="$2"; shift 2;;
@@ -40,7 +37,7 @@ done
 if [ -z "$APK" ]; then
     ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
     . "$ROOT/build_files/android/env.sh"
-    APK="$BUILD_BASE/apk/player_bundle_${FEATURE}_${ARCH}-latest.tar.gz"
+    APK="$BUILD_BASE/apk/player_bundle_player-only_${ARCH}-latest.tar.gz"
     if [ ! -f "$APK" ]; then
         echo "no APK at $APK; pass --apk explicitly" >&2
         exit 1

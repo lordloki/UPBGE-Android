@@ -10,8 +10,8 @@
 #   - Each one defines: recipe_<name>() { ... }
 #   - They install into $DEPS_PREFIX.
 #
-# The list of recipes is the same Wanderson uses, minus what `player-only`
-# can drop. The `full` feature set enables the entire list.
+# The recipe list is the subset of Wanderson's deps/build.sh that the
+# `player-only` feature set needs.
 
 set -euo pipefail
 
@@ -26,7 +26,6 @@ RECIPES_DIR="$SCRIPT_DIR/recipes"
 # CLI
 # -----------------------------------------------------------------------------
 ARCH="${ARCH:-arm64-v8a}"
-FEATURE="${FEATURE:-player-only}"
 JOBS="${JOBS:-$(nproc)}"
 DEPS_PREFIX="${BUILD_BASE:-$HOME/upbge_android_build_base}/lib/android_${ARCH}"
 SRC_DIR="${BUILD_BASE:-$HOME/upbge_android_build_base}/deps_src/${ARCH}"
@@ -35,13 +34,11 @@ LOG_DIR="${BUILD_BASE:-$HOME/upbge_android_build_base}/logs"
 
 usage() {
     cat <<EOF
-usage: deps/build.sh [--arch ARCH] [--feature FEATURE] [--jobs N]
+usage: deps/build.sh [--arch ARCH] [--jobs N]
 
-Cross-compile the UPBGE dependency prefix for Android.
+Cross-compile the UPBGE dependency prefix for Android (player-only).
 
-  --arch ARCH       arm64-v8a (default) | armeabi-v7a
-  --feature FEATURE player-only (default) | full
-                    'full' enables extra heavy libs (TBB, Cycles deps, OIDN, ...)
+  --arch ARCH       arm64-v8a (default; only target supported)
   --jobs N          parallel jobs (default: nproc)
 
 Outputs:
@@ -53,7 +50,6 @@ EOF
 while [ $# -gt 0 ]; do
     case "$1" in
         --arch) ARCH="$2"; shift 2;;
-        --feature) FEATURE="$2"; shift 2;;
         --jobs) JOBS="$2"; shift 2;;
         -h|--help) usage; exit 0;;
         *) echo "unknown arg: $1" >&2; usage; exit 2;;
@@ -62,18 +58,17 @@ done
 
 case "$ARCH" in
     arm64-v8a)   TRIPLET="aarch64-linux-android";;
-    armeabi-v7a) TRIPLET="arm-linux-androideabi";;
-    *) echo "unsupported arch: $ARCH" >&2; exit 2;;
+    *) echo "unsupported arch: $ARCH (only arm64-v8a is supported)" >&2; exit 2;;
 esac
 
 mkdir -p "$DEPS_PREFIX" "$SRC_DIR" "$BUILD_DIR_BASE" "$LOG_DIR"
-DEPS_LOG="$LOG_DIR/deps_${ARCH}_${FEATURE}.log"
+DEPS_LOG="$LOG_DIR/deps_${ARCH}.log"
 : > "$DEPS_LOG"
 
 # -----------------------------------------------------------------------------
 # Toolchain vars exported for every recipe
 # -----------------------------------------------------------------------------
-export ARCH TRIPLET FEATURE JOBS
+export ARCH TRIPLET JOBS
 export DEPS_PREFIX SRC_DIR BUILD_DIR_BASE
 export NDK_HOST_OS_TAG="linux-x86_64"
 export HOST_CC HOST_CXX
@@ -104,8 +99,9 @@ step() {
 # Recipe loading
 # -----------------------------------------------------------------------------
 # The recipe list is ordered by dependency: later recipes may -I/-L against
-# earlier ones. The order matches Wanderson's deps/build.sh as of 5.3.0-final.
-PLAYER_ONLY_RECIPES=(
+# earlier ones. The order matches Wanderson's deps/build.sh as of 5.3.0-final
+# (subset that the player-only feature set needs).
+RECIPES=(
     zlib
     zstd
     lz4
@@ -138,48 +134,12 @@ PLAYER_ONLY_RECIPES=(
     android_extra   # log, android_native_app_glue
 )
 
-FULL_RECIPES=(
-    "${PLAYER_ONLY_RECIPES[@]}"
-    tbb
-    openvdb
-    openimageio
-    opensubdiv
-    embree
-    ceres
-    gmp
-    mpfr
-    pugixml
-    openpgl
-    manifold
-    draco
-    openimagedenoise
-    openshadinglanguage
-    pystring
-    hdf5
-    alembic
-    materialx
-    usd
-    potrace
-    pcre2
-    xml2
-    iconv
-    intl
-    freetype_extras
-)
-
-if [ "$FEATURE" = "full" ]; then
-    RECIPES=("${FULL_RECIPES[@]}")
-else
-    RECIPES=("${PLAYER_ONLY_RECIPES[@]}")
-fi
-
 # -----------------------------------------------------------------------------
 # Run
 # -----------------------------------------------------------------------------
 log "BUILD_BASE  = $BUILD_BASE"
 log "ARCH        = $ARCH"
 log "TRIPLET     = $TRIPLET"
-log "FEATURE     = $FEATURE"
 log "DEPS_PREFIX = $DEPS_PREFIX"
 log "recipes     = ${#RECIPES[@]}"
 log ""

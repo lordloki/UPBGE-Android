@@ -66,12 +66,10 @@ recipe_openimagedenoise() {
 
 ## Status
 
-The recipes that ship in this directory cover the **player-only** dependency
-list end to end (zlib, zstd, libpng, libjpeg, freetype, Python, ffmpeg,
-OpenAL, Vulkan loader, ...). The recipes for `full` only extras (Cycles deps,
-OIDN, OpenVDB, ...) are provided as commented stubs that mirror Wanderson's
-recipes — they need to be filled in before `make deps --feature=full` works
-fully. See each file's header.
+The 30 recipes that ship in this directory cover the entire dependency list
+the system needs (zlib, zstd, libpng, libjpeg, freetype, Python, ffmpeg,
+OpenAL, Vulkan loader, ...). There is no `full` feature set; the player-only
+list is the only one.
 
 The full reference for every recipe is Wanderson's
 `build_files/android/deps/build.sh` at:

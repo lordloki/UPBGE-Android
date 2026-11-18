@@ -9,7 +9,7 @@ Usage:
 
 Features:
     player-only   Minimal runtime: blenderplayer + Vulkan + Python, no editor.
-    full          Everything (Cycles, EEVEE, OIDN, FFmpeg, ...). Editor + player.
+                  This is the only feature set supported by the system.
 
 Options:
     --arch ARCH           arm64-v8a (only Android target supported)
@@ -62,7 +62,7 @@ TOOLCHAIN_FILE = ANDROID_DIR / "toolchain" / "android.toolchain.cmake"
 PATCHES_DIR = ANDROID_DIR / "patches"
 APK_TEMPLATE_DIR = ANDROID_DIR / "apk"
 
-VALID_FEATURES = ("player-only", "full")
+VALID_FEATURES = ("player-only",)
 VALID_ARCHES = ("arm64-v8a",)
 
 # Map ABI -> NDK CMake triplet

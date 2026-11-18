@@ -116,25 +116,19 @@ bash scripts/fetch_upbge.sh --reset
 ## 5. Cross-compile the dependency prefix (one-time, hours)
 
 ```bash
-make deps ARCH=arm64-v8a FEATURE=player-only
+make deps ARCH=arm64-v8a
 ```
 
-This builds ~50 libraries (player-only) or ~73 (full) into
+This builds the 30 libraries listed in `docs/DEPENDENCIES.md` into
 `~/upbge_android_build_base/lib/android_<arch>/`.
 
-Logs land in `~/upbge_android_build_base/logs/deps_<arch>_<feature>.log`.
+Logs land in `~/upbge_android_build_base/logs/deps_<arch>.log`.
 Inspect them when a recipe fails.
-
-The `full` feature set additionally builds TBB, OpenVDB, OIDN, OpenImageIO,
-OpenSubdiv, Embree, Ceres, OpenPGL, Manifold, Draco, USD, Alembic, MaterialX.
-Recipes for these are stubs in `build_files/android/deps/recipes/` and need
-to be filled in before `make deps FEATURE=full` works end to end — see the
-`README.md` in that directory for the contract.
 
 ## 6. Build the player
 
 ```bash
-make build-player ARCH=arm64-v8a
+make build ARCH=arm64-v8a
 ```
 
 This:
@@ -150,7 +144,7 @@ Output: `~/upbge_android_build_base/build_android_player-only_<arch>/bin/libupbg
 ## 7. Package the player bundle
 
 ```bash
-make package ARCH=arm64-v8a FEATURE=player-only
+make package ARCH=arm64-v8a
 ```
 
 This produces:
@@ -180,7 +174,7 @@ This produces:
 With a phone connected over USB or wireless ADB:
 
 ```bash
-make deploy ARCH=arm64-v8a FEATURE=player-only
+make deploy ARCH=arm64-v8a
 ```
 
 This installs the unsigned APK (you may need `adb root` on a userdebug image,
@@ -224,7 +218,7 @@ These all produce a green build that runs old code. Memorise them:
 ## 10. CI
 
 `.github/workflows/build-android.yml` runs the entire pipeline on every push
-to `main` and every `v*` tag, with a 1×2 matrix: `(arm64-v8a) ×
-(player-only, full)`. The dependency prefix is cached per `(arch, feature)`
+to `main` and every `v*` tag, single target (arm64-v8a + player-only).
+The dependency prefix is cached per commit hash of every recipe file
 so subsequent runs take ~30 min instead of hours. Artifacts are kept 30 days;
 tagged builds also publish a GitHub Release.

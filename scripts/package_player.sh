@@ -9,7 +9,7 @@
 #   --upbge-source PATH  the UPBGE source tree (for scripts/, release/datafiles/)
 #   --dep-prefix PATH    the deps prefix (for Python stdlib + site-packages)
 #   --stage PATH         where to assemble the bundle (cleaned first)
-#   --feature STR        player-only | full
+#   --feature STR        player-only (only supported value)
 #   --arch STR           arm64-v8a (only target supported)
 #   --apk-template PATH  the build_files/android/apk/ skeleton dir
 #
