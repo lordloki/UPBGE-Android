@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Build the gettext runtime for Android; host-side gettext tools are not needed.
 recipe_gettext() {
-    local ver=0.22.5 src="$SRC_DIR/gettext-$ver/gettext-runtime"
+    local ver="0.22.5"
+    local src="$SRC_DIR/gettext-$ver/gettext-runtime"
     download_and_extract "https://ftp.gnu.org/pub/gnu/gettext/gettext-$ver.tar.gz" "$SRC_DIR/gettext-$ver"
     [ -f "$src/configure" ] || {
         echo "gettext runtime configure script not found: $src/configure" >&2
