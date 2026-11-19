@@ -43,6 +43,14 @@ recipe_python() {
         export CFLAGS="-O2 -fPIC -D__ANDROID_API__=$api -I$DEPS_PREFIX/include"
         export CPPFLAGS="-I$DEPS_PREFIX/include"
         export LDFLAGS="-L$DEPS_PREFIX/lib"
+        # CPython's locale module uses GNU gettext when libintl.h is available.
+        # Link the Android gettext runtime explicitly to resolve libintl_* symbols.
+        if [ ! -f "$DEPS_PREFIX/lib/libintl.a" ]; then
+            echo "gettext static library not found: $DEPS_PREFIX/lib/libintl.a" >&2
+            echo "Build the gettext recipe before Python and verify its installation." >&2
+            exit 1
+        fi
+        export LIBS="-lintl ${LIBS:-}"
         export PKG_CONFIG_LIBDIR="$DEPS_PREFIX/lib/pkgconfig:$DEPS_PREFIX/share/pkgconfig"
         "$target_src/configure" \
             --host="$TRIPLET" \

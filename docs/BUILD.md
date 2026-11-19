@@ -3,6 +3,17 @@
 This guide walks you through building the `blenderplayer` standalone binary
 for Android `arm64-v8a` from a Linux host, end to end.
 
+### CPython link failure: `undefined symbol: libintl_*`
+
+The Android gettext runtime must be built before CPython. The Python recipe checks
+for `libintl.a` in `$DEPS_PREFIX/lib` and passes `-lintl` through `LIBS` when
+configuring the target interpreter. If the check fails, inspect the gettext recipe
+and its build log before retrying Python.
+
+The `clang-17` linker shown in this error is the compiler driver supplied by NDK
+r26d for the Android target. It is separate from the Clang 19 compiler used on
+the openSUSE host.
+
 ## 1. Clone this system
 
 First get the build system itself — every other step runs from inside it.
