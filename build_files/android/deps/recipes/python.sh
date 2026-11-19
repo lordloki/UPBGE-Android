@@ -45,7 +45,7 @@ recipe_python() {
         export LDFLAGS="-L$DEPS_PREFIX/lib"
         # CPython's locale module uses GNU gettext when libintl.h is available.
         # Link the Android gettext runtime explicitly to resolve libintl_* symbols.
-        if [ ! -f "$DEPS_PREFIX/lib/libintl.a" ]; then
+        if [[ ! -f "$DEPS_PREFIX/lib/libintl.a" && ! -f "$DEPS_PREFIX/lib64/libintl.a" ]]; then
             echo "gettext static library not found: $DEPS_PREFIX/lib/libintl.a" >&2
             echo "Build the gettext recipe before Python and verify its installation." >&2
             exit 1
