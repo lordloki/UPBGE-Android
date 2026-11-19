@@ -76,6 +76,8 @@ export HOST_CC HOST_CXX
 # that returns nothing but exit 0, and recipes use find_path/find_library
 # directly instead.
 export PKG_CONFIG="$(command -v pkg-config || true)"
+export PKG_CONFIG_LIBDIR="$DEPS_PREFIX/lib/pkgconfig:$DEPS_PREFIX/share/pkgconfig"
+export PKG_CONFIG_SYSROOT_DIR="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$NDK_HOST_OS_TAG/sysroot"
 
 # CMake toolchain reused by every recipe (custom, smaller than Blender's).
 export DEPS_TOOLCHAIN="$ANDROID_DIR/toolchain/android.toolchain.cmake"
@@ -95,12 +97,15 @@ step() {
     log "<<< $name (${elapsed}s)"
 }
 
+# Load common helpers before individual recipes.
+. "$RECIPES_DIR/_helpers.sh"
+
 # -----------------------------------------------------------------------------
 # Recipe loading
 # -----------------------------------------------------------------------------
 # The recipe list is ordered by dependency: later recipes may -I/-L against
-# earlier ones. The order matches Wanderson's deps/build.sh as of 5.3.0-final
-# (subset that the player-only feature set needs).
+# earlier ones. This is the player-only dependency set; optional codecs not
+# required by the runtime are deliberately excluded.
 RECIPES=(
     zlib
     zstd
@@ -113,22 +118,21 @@ RECIPES=(
     sqlite
     python
     boost
-    openexr
     openjpeg
     tiff
+    openexr
     fftw3           # game engine audio
-    sndfile
+    ogg
     flac
     vorbis
-    ogg
     opus
+    sndfile
     ffmpeg
     sdl2
     openal
-    jpeg-xt         # 12-bit JPEG support, optional
     glew
-    shaderc
     spirv-tools
+    shaderc
     vulkan_headers
     vulkan_loader
     android_extra   # log, android_native_app_glue

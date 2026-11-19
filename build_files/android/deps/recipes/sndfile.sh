@@ -1,19 +1,11 @@
 #!/usr/bin/env bash
-# deps/recipes/sndfile.sh
-#
-# Source: https://github.com/libsndfile/libsndfile/releases/download/1.2.2/libsndfile-1.2.2.tar.xz
-# Reference: Wanderson's build_files/android/deps/build.sh
-# 
-#
-# STATUS: stub. The skeleton below will fetch and call cmake_android; you
-#         likely need to add feature toggles, patch steps, or post-install
-#         fixes. See the README in this directory for the contract.
+# libsndfile: use only codecs built earlier in the dependency sequence.
 recipe_sndfile() {
-    local src="$SRC_DIR/sndfile"
-    if [ ! -d "$src" ]; then
-        download_and_extract "https://github.com/libsndfile/libsndfile/releases/download/1.2.2/libsndfile-1.2.2.tar.xz" "$src"
-    fi
-    # If a patch exists, apply it now:
-    #   patch -d "$src" -p1 < "$UPBGE_ANDROID_ROOT/build_files/android/patches/sndfile_android.diff"
-    cmake_android "$src" "$BUILD_DIR_BASE/sndfile-$ARCH"
+    local ver=1.2.2 src="$SRC_DIR/libsndfile-$ver"
+    download_and_extract "https://github.com/libsndfile/libsndfile/releases/download/$ver/libsndfile-$ver.tar.xz" "$src"
+    cmake_android "$src" "$BUILD_DIR_BASE/sndfile-$ARCH" \
+        -DBUILD_PROGRAMS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF \
+        -DBUILD_REGTEST=OFF -DENABLE_EXTERNAL_LIBS=ON \
+        -DENABLE_MPEG=OFF -DENABLE_CPACK=OFF \
+        -DOgg_ROOT="$DEPS_PREFIX" -DVorbis_ROOT="$DEPS_PREFIX" -DFLAC_ROOT="$DEPS_PREFIX"
 }

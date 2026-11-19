@@ -1,19 +1,17 @@
 #!/usr/bin/env bash
-# deps/recipes/boost.sh
-#
-# Source: https://boostorg.jfrog.io/artifactory/main/release/1.84.0/source/boost_1_84_0.tar.gz
-# Reference: Wanderson's build_files/android/deps/build.sh
-# Bootstrap with --without-{python,mpi,graph,log,test,wave}. Build only the static libraries: filesystem, system, thread, regex, date_time, iostreams, program_options.
-#
-# STATUS: stub. The skeleton below will fetch and call cmake_android; you
-#         likely need to add feature toggles, patch steps, or post-install
-#         fixes. See the README in this directory for the contract.
+# Boost.Build is not a CMake project. Build the subset used by Blender/UPBGE.
 recipe_boost() {
-    local src="$SRC_DIR/boost"
-    if [ ! -d "$src" ]; then
-        download_and_extract "https://boostorg.jfrog.io/artifactory/main/release/1.84.0/source/boost_1_84_0.tar.gz" "$src"
-    fi
-    # If a patch exists, apply it now:
-    #   patch -d "$src" -p1 < "$UPBGE_ANDROID_ROOT/build_files/android/patches/boost_android.diff"
-    cmake_android "$src" "$BUILD_DIR_BASE/boost-$ARCH"
+    local ver=1.84.0 src="$SRC_DIR/boost_1_84_0"
+    download_and_extract "https://archives.boost.io/release/$ver/source/boost_1_84_0.tar.gz" "$src"
+    ( cd "$src"
+      ./bootstrap.sh --with-toolset=clang --without-libraries=python,mpi,graph,log,wave,test
+      cat > user-config.jam <<EOF
+using clang : android : $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$NDK_HOST_OS_TAG/bin/${TRIPLET}${ANDROID_PLATFORM#android-}-clang++ : <archiver>$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$NDK_HOST_OS_TAG/bin/llvm-ar <ranlib>$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$NDK_HOST_OS_TAG/bin/llvm-ranlib <cxxflags>-fPIC <cxxflags>-std=c++17 <compileflags>-D__ANDROID_API__=${ANDROID_PLATFORM#android-} <compileflags>--target=$TRIPLET${ANDROID_PLATFORM#android-} <linkflags>--target=$TRIPLET${ANDROID_PLATFORM#android-} ;
+EOF
+      ./b2 -j"$JOBS" toolset=clang-android target-os=android architecture=arm address-model=64 \
+        variant=release link=static threading=multi runtime-link=shared \
+        --user-config=user-config.jam --prefix="$DEPS_PREFIX" \
+        --with-filesystem --with-system --with-thread --with-regex \
+        --with-date_time --with-iostreams --with-program_options install
+    )
 }

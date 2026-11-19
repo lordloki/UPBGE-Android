@@ -34,7 +34,7 @@ cd upbge_android_build
 
 # 2. Install host prerequisites (auto-detects Ubuntu/Debian/openSUSE/Fedora)
 make setup-host
-#    ↑ installs gcc-14, clang-17, cmake, ninja, JDK 17, python3, etc.
+#    ↑ installs host build tools; openSUSE Tumbleweed uses Clang 19.
 #      prints the JAVA_HOME / ANDROID_HOME / PATH exports to add to ~/.bashrc.
 
 # 3. Install Android SDK + NDK r26d

@@ -4,23 +4,28 @@
 # It does NOT overwrite variables the caller already exported.
 
 # -----------------------------------------------------------------------------
+# Initialize optional overrides because deps/build.sh sources this file with
+# `set -u` enabled.
+: "${HOST_CC:=}"
+: "${HOST_CXX:=}"
+
 # Host compiler: Blender's code generators (makesdna, makesrna, ...) need
-# GCC >= 14 or Clang >= 17. Pick the first one found in this order.
+# GCC >= 14 or Clang >= 17. Prefer Clang 19 on openSUSE Tumbleweed.
 # -----------------------------------------------------------------------------
 pick_host_cc() {
-    for c in gcc-15 gcc-14 clang-18 clang-17 gcc clang cc; do
-        if command -v "$c" >/dev/null 2>&1; then
-            if [ -z "$HOST_CC" ]; then HOST_CC="$(command -v "$c")"; fi
+    if [ -z "$HOST_CC" ] || [ -z "$HOST_CXX" ]; then
+        for c in clang-19 clang-18 clang-17 gcc-15 gcc-14 gcc clang cc; do
             local cxx="${c/gcc/g++}"
             cxx="${cxx/clang/clang++}"
-            if command -v "$cxx" >/dev/null 2>&1 && [ -z "$HOST_CXX" ]; then
-                HOST_CXX="$(command -v "$cxx")"
+            if command -v "$c" >/dev/null 2>&1 && command -v "$cxx" >/dev/null 2>&1; then
+                [ -n "$HOST_CC" ] || HOST_CC="$(command -v "$c")"
+                [ -n "$HOST_CXX" ] || HOST_CXX="$(command -v "$cxx")"
+                break
             fi
-            break
-        fi
-    done
+        done
+    fi
     if [ -z "$HOST_CC" ] || [ -z "$HOST_CXX" ]; then
-        echo "env.sh: no suitable host compiler found (need gcc>=14 or clang>=17)" >&2
+        echo "env.sh: no suitable host compiler found (need gcc>=14 or clang>=17; Clang 19 is preferred)" >&2
         return 1
     fi
     export HOST_CC HOST_CXX

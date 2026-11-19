@@ -1,77 +1,31 @@
-# build_files/android/deps/recipes/
+# Android dependency recipes
 
-Each file `<name>.sh` defines a Bash function `recipe_<name>` that downloads,
-patches (if needed), cross-compiles, and installs one library into
-`$DEPS_PREFIX` (i.e. `$BUILD_BASE/lib/android_<arch>`).
+Each recipe defines `recipe_<name>()` and is sourced by `deps/build.sh`. The
+active list in `deps/build.sh` is the authoritative player-only dependency set.
 
-## Environment variables already set when the recipe is sourced
+## Build helpers
 
-| Variable             | Meaning                                                         |
-| -------------------- | --------------------------------------------------------------- |
-| `$ARCH`              | `arm64-v8a` or `armeabi-v7a`                                    |
-| `$TRIPLET`           | NDK CMake triplet, e.g. `aarch64-linux-android`                 |
-| `$FEATURE`           | `player-only` or `full`                                         |
-| `$JOBS`              | parallelism (typically `nproc`)                                 |
-| `$DEPS_PREFIX`       | install prefix (lib/ include/)                                  |
-| `$SRC_DIR`           | where sources are extracted                                     |
-| `$BUILD_DIR_BASE`    | where out-of-tree builds go                                     |
-| `$DEPS_TOOLCHAIN`    | path to `android.toolchain.cmake`                               |
-| `$HOST_CC`           | host CC (for `CC=$HOST_CC` if a host-side tool is needed)       |
-| `$HOST_CXX`          | host CXX                                                        |
-| `$NDK_HOST_OS_TAG`   | e.g. `linux-x86_64`                                             |
+- `download_and_extract URL DIR` caches source archives under `$SRC_DIR/.downloads`.
+- `cmake_android SRC BUILD [CMake options...]` cross-compiles and installs with
+  the repository Android toolchain.
+- `autotools_android SRC BUILD [configure options...]` uses the NDK Clang
+  wrappers, `llvm-ar`, and `llvm-ranlib` for static cross-builds.
 
-## Recipe skeleton
+Recipes that are not listed in `deps/build.sh` are not part of the current
+player-only build. Some historical full-Blender recipe files remain in this
+directory as inactive placeholders and are not loaded.
 
-```bash
-recipe_zlib() {
-    local ver="1.3.1"
-    local src="$SRC_DIR/zlib-$ver"
-    local url="https://zlib.net/fossils/zlib-$ver.tar.gz"
+## Important Android-specific decisions
 
-    if [ ! -d "$src" ]; then
-        download_and_extract "$url" "$src"
-    fi
+- Boost uses Boost.Build (`b2`), not CMake.
+- OpenEXR builds its matching Imath dependency first.
+- FFmpeg is built as static libraries with the required internal decoders; it
+  does not probe host codec libraries.
+- shaderc synchronizes the dependency revisions pinned by its release.
+- GLEW is explicitly skipped: desktop GLEW is not an Android GLES loader.
+- Vulkan's runtime loader is supplied by Android; the app must link the NDK
+  Vulkan stub and must not package a competing Vulkan loader.
 
-    local bld="$BUILD_DIR_BASE/zlib-$ARCH"
-    mkdir -p "$bld"
-    cmake -G Ninja -S "$src" -B "$bld" \
-        -DCMAKE_TOOLCHAIN_FILE="$DEPS_TOOLCHAIN" \
-        -DANDROID_ABI="$ARCH" \
-        -DANDROID_PLATFORM="android-31" \
-        -DANDROID_NDK="$ANDROID_NDK_HOME" \
-        -DCMAKE_INSTALL_PREFIX="$DEPS_PREFIX" \
-        -DCMAKE_BUILD_TYPE=Release
-    cmake --build "$bld" --target install -- -j"$JOBS"
-}
-```
-
-## Helper functions (defined in deps/build.sh)
-
-- `download_and_extract URL DIR` — `wget -O` + `tar xf` into `DIR`. Detects
-  `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.zip` from the extension.
-
-## Patching a library
-
-If a library needs an Android patch (like OIDN or glog), reference the diff
-from `build_files/android/patches/` inside the recipe:
-
-```bash
-recipe_openimagedenoise() {
-    ...
-    cd "$src"
-    patch -p1 < "$UPBGE_ANDROID_ROOT/build_files/android/patches/oidn_android.diff"
-    ...
-}
-```
-
-## Status
-
-The 30 recipes that ship in this directory cover the entire dependency list
-the system needs (zlib, zstd, libpng, libjpeg, freetype, Python, ffmpeg,
-OpenAL, Vulkan loader, ...). There is no `full` feature set; the player-only
-list is the only one.
-
-The full reference for every recipe is Wanderson's
-`build_files/android/deps/build.sh` at:
-
-    https://github.com/Wanderson-Magalhaes/blender_for_android/blob/main/build_files/android/deps/build.sh
+The recipes have been syntax-checked and statically reviewed. They have not been
+compiled on an Android NDK in this environment; a successful dependency build
+and final UPBGE link are still required before treating the set as validated.

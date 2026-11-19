@@ -77,6 +77,8 @@ info "  ID=$DISTRO  VERSION=$VERSION  ID_LIKE=$ID_LIKE"
 # 2. Dispatch
 # ---------------------------------------------------------------------------
 JAVA_HOME_OUT=""
+HOST_CC_OUT=""
+HOST_CXX_OUT=""
 
 install_debian() {
     info "apt-based install"
@@ -124,11 +126,23 @@ install_opensuse() {
         run_sudo zypper refresh
     fi
 
+    # Tumbleweed uses versioned compiler binaries. Keep Clang 19 explicit;
+    # do not change the system-wide clang alternative.
+    if [ "$DISTRO" = "opensuse-tumbleweed" ]; then
+        CLANG_PACKAGES=(clang19 clang-tools)
+        HOST_CLANG_CC="/usr/bin/clang-19"
+        HOST_CLANG_CXX="/usr/bin/clang++-19"
+    else
+        CLANG_PACKAGES=(clang17 clang17-tools)
+        HOST_CLANG_CC="/usr/bin/clang-17"
+        HOST_CLANG_CXX="/usr/bin/clang++-17"
+    fi
+
     # patterns-devel-base-devel_basis pulls in make, automake, etc.
     run_sudo zypper install -y \
         patterns-devel-base-devel_basis \
         gcc14 gcc14-c++ \
-        clang17 clang17-tools \
+        "${CLANG_PACKAGES[@]}" \
         cmake ninja \
         git curl wget unzip zip \
         python311 python311-pip \
@@ -140,8 +154,12 @@ install_opensuse() {
     # update-alternatives gives us /usr/bin/gcc -> gcc-14.
     run_sudo update-alternatives --install /usr/bin/gcc    gcc    /usr/bin/gcc-14    100 || true
     run_sudo update-alternatives --install /usr/bin/g++    g++    /usr/bin/g++-14    100 || true
-    run_sudo update-alternatives --install /usr/bin/clang  clang  /usr/bin/clang-17  100 || true
-    run_sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-17 100 || true
+    # Keep the selected compiler local to this build; changing the global
+    # clang alternative can affect unrelated projects on Tumbleweed.
+    if [ -x "$HOST_CLANG_CC" ] && [ -x "$HOST_CLANG_CXX" ]; then
+        HOST_CC_OUT="$HOST_CLANG_CC"
+        HOST_CXX_OUT="$HOST_CLANG_CXX"
+    fi
 
     # openSUSE puts JVM under /usr/lib64/jvm (note: lib64, not lib)
     if [ -d /usr/lib64/jvm/java-17-openjdk ]; then
@@ -207,6 +225,11 @@ for bin in gcc g++ clang clang++ cmake ninja python3 java; do
     fi
 done
 
+if [ -n "$HOST_CC_OUT" ] && [ -x "$HOST_CC_OUT" ]; then
+    echo "  HOST_CC: $HOST_CC_OUT ($($HOST_CC_OUT --version 2>&1 | head -1))"
+    echo "  HOST_CXX: $HOST_CXX_OUT"
+fi
+
 if [ -n "${JAVA_HOME_OUT:-}" ] && [ -d "$JAVA_HOME_OUT" ]; then
     echo "  JAVA_HOME: $JAVA_HOME_OUT"
 else
@@ -221,6 +244,12 @@ cat <<EOF
 [setup_host] done. Add these to ~/.bashrc (or source before building):
 
     export JAVA_HOME=${JAVA_HOME_OUT:-/usr/lib/jvm/java-17-openjdk}
+EOF
+if [ -n "$HOST_CC_OUT" ]; then
+    echo "    export HOST_CC=$HOST_CC_OUT"
+    echo "    export HOST_CXX=$HOST_CXX_OUT"
+fi
+cat <<EOF
     export ANDROID_HOME=\$HOME/Android/Sdk
     export ANDROID_NDK_VERSION=r26d
     export ANDROID_NDK_HOME=\$ANDROID_HOME/ndk/\$ANDROID_NDK_VERSION

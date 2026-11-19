@@ -5,7 +5,7 @@ The dependency prefix `$BUILD_BASE/lib/android_<arch>/` is built by
 from `deps/recipes/*.sh`. This page documents the list and the rationale for
 each entry.
 
-## Recipes (30 libraries)
+## Recipes (29 libraries)
 
 These are the libraries the `blenderplayer` runtime needs to boot a
 `.blend` and run a game. The list is fixed (no feature-set variants):
@@ -47,7 +47,7 @@ These are the libraries the `blenderplayer` runtime needs to boot a
 ### Graphics
 | Lib | Why |
 | --- | --- |
-| glew | (Stubbed; only used by legacy GL paths; off on Android) |
+| glew | Explicitly skipped; desktop GLEW is not an Android GLES loader. |
 | shaderc, spirv-tools | GLSL → SPIR-V compilation for EEVEE Next |
 | vulkan_headers | `vulkan/vulkan.h` |
 | vulkan_loader | Loader / stub so `find_package(Vulkan)` succeeds |
@@ -61,7 +61,19 @@ These are the libraries the `blenderplayer` runtime needs to boot a
 | Lib | Why |
 | --- | --- |
 | android_extra | The NDK-bundled `android_native_app_glue.c` copied into the prefix. |
-| jpeg-xt | 12-bit JPEG support, optional. |
+
+
+## Build notes
+
+- CMake recipes use the shared Android toolchain and install into the common prefix.
+- Autotools recipes use the NDK Clang wrapper for the selected API level and static libraries.
+- Boost is built with Boost.Build, not CMake.
+- OpenEXR first builds the matching Imath release.
+- shaderc requires its pinned glslang/SPIRV-Headers/SPIRV-Tools sources; its sync script fetches those dependencies.
+- GLEW is headers-only because desktop GLEW is not an Android GLES loader.
+
+JPEG XT is intentionally excluded from the active list: it is optional and
+not required by the player runtime.
 
 ## Versions
 

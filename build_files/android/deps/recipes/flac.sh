@@ -1,19 +1,10 @@
 #!/usr/bin/env bash
-# deps/recipes/flac.sh
-#
-# Source: https://downloads.xiph.org/releases/flac/flac-1.4.3.tar.xz
-# Reference: Wanderson's build_files/android/deps/build.sh
-# 
-#
-# STATUS: stub. The skeleton below will fetch and call cmake_android; you
-#         likely need to add feature toggles, patch steps, or post-install
-#         fixes. See the README in this directory for the contract.
+# FLAC static library; disable command-line tools and tests.
 recipe_flac() {
-    local src="$SRC_DIR/flac"
-    if [ ! -d "$src" ]; then
-        download_and_extract "https://downloads.xiph.org/releases/flac/flac-1.4.3.tar.xz" "$src"
-    fi
-    # If a patch exists, apply it now:
-    #   patch -d "$src" -p1 < "$UPBGE_ANDROID_ROOT/build_files/android/patches/flac_android.diff"
-    cmake_android "$src" "$BUILD_DIR_BASE/flac-$ARCH"
+    local ver=1.4.3 src="$SRC_DIR/flac-$ver"
+    download_and_extract "https://downloads.xiph.org/releases/flac/flac-$ver.tar.xz" "$src"
+    cmake_android "$src" "$BUILD_DIR_BASE/flac-$ARCH" \
+        -DBUILD_CXXLIBS=OFF -DBUILD_PROGRAMS=OFF -DBUILD_EXAMPLES=OFF \
+        -DBUILD_TESTING=OFF -DBUILD_DOCS=OFF -DWITH_OGG=ON \
+        -DOGG_INCLUDE_DIR="$DEPS_PREFIX/include" -DOGG_LIBRARY="$DEPS_PREFIX/lib/libogg.a"
 }

@@ -31,13 +31,14 @@ and installs the right set of packages with the right package manager:
 | Distro | PackageManager | Host compiler |
 | --- | --- | --- |
 | Ubuntu 22.04 / 24.04, Debian 12+ | apt | gcc-14 / clang-17 |
-| openSUSE Tumbleweed | zypper | gcc14 / clang17 (default repo) |
+| openSUSE Tumbleweed | zypper | Clang 19 (`clang-19` / `clang++-19`), gcc14 available |
 | openSUSE Leap 15.5+ | zypper | gcc14 from `devel:gcc` repo (added automatically) |
 | Fedora 39+, Rocky 9, Alma 9, RHEL 9 | dnf | gcc / clang (system default) |
 
-It also wires up `update-alternatives` so `/usr/bin/gcc` and `/usr/bin/clang`
-point at the right versions, and prints the `JAVA_HOME` / `PATH` exports you
-need to add to `~/.bashrc`.
+On openSUSE Tumbleweed it installs Clang 19 and selects it explicitly for
+this build through `HOST_CC` and `HOST_CXX`; it does not change the system-wide
+`clang` alternative. The script also prints the `JAVA_HOME` / `PATH` exports
+you need to add to `~/.bashrc`.
 
 To preview what it would run without touching anything:
 

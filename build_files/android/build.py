@@ -122,16 +122,17 @@ def resolve_env(args: argparse.Namespace) -> Env:
     host_cc = os.environ.get("HOST_CC", "")
     host_cxx = os.environ.get("HOST_CXX", "")
     if not host_cc or not host_cxx:
-        # Last-resort auto-pick
-        for cand in ("gcc-15","gcc-14","clang-18","clang-17","gcc","clang"):
-            if shutil.which(cand):
-                host_cc = shutil.which(cand)
-                cxx = cand.replace("gcc","g++").replace("clang","clang++")
-                if shutil.which(cxx):
-                    host_cxx = shutil.which(cxx)
+        # Last-resort auto-pick a matching host compiler pair.
+        for cand in ("clang-19", "clang-18", "clang-17", "gcc-15", "gcc-14", "gcc", "clang"):
+            cxx = cand.replace("gcc", "g++").replace("clang", "clang++")
+            cc_path = shutil.which(cand)
+            cxx_path = shutil.which(cxx)
+            if cc_path and cxx_path:
+                host_cc = host_cc or cc_path
+                host_cxx = host_cxx or cxx_path
                 break
-    if not host_cc:
-        raise BuildError("no HOST_CC found; source env.sh first")
+    if not host_cc or not host_cxx:
+        raise BuildError("no matching HOST_CC/HOST_CXX pair found; source env.sh first")
     build_base = Path(args.build_base or os.environ.get("BUILD_BASE",
                        str(Path.home() / "upbge_android_build_base")))
     upbge_source = Path(os.environ.get("UPBGE_SOURCE",
@@ -188,6 +189,20 @@ def build_host_tools(env: Env, feature: str, verbose: bool, jobs: int) -> Path:
     host_build = env.build_base / f"build_host_tools_{feature}"
     host_install = host_build  # in-tree; makesdna/makesrna are run from build dir
     cmake_cache = host_build / "CMakeCache.txt"
+
+    if cmake_cache.is_file():
+        cache_text = cmake_cache.read_text(errors="replace")
+        cached_cc = next((line.split("=", 1)[1] for line in cache_text.splitlines()
+                          if line.startswith("CMAKE_C_COMPILER:") and "=" in line), "")
+        cached_cxx = next((line.split("=", 1)[1] for line in cache_text.splitlines()
+                           if line.startswith("CMAKE_CXX_COMPILER:") and "=" in line), "")
+        selected_cc = str(Path(env.host_cc).resolve())
+        selected_cxx = str(Path(env.host_cxx).resolve())
+        if cached_cc and cached_cxx and (
+                str(Path(cached_cc).resolve()) != selected_cc or
+                str(Path(cached_cxx).resolve()) != selected_cxx):
+            info("Host compiler changed; removing the old host-tools CMake cache")
+            shutil.rmtree(host_build)
 
     feature_file = FEATURES_DIR / f"{feature.replace('-', '_')}.cmake"
     if not feature_file.is_file():

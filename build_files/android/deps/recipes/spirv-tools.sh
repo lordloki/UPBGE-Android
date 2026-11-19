@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# deps/recipes/spirv-tools.sh
-#
-# Source: https://github.com/KhronosGroup/SPIRV-Tools/archive/refs/tags/v2024.1.tar.gz
-# Reference: Wanderson's build_files/android/deps/build.sh
-# 
-#
-# STATUS: stub. The skeleton below will fetch and call cmake_android; you
-#         likely need to add feature toggles, patch steps, or post-install
-#         fixes. See the README in this directory for the contract.
+# SPIRV-Tools is a required shaderc dependency. The shaderc checkout's
+# DEPS file pins the matching SPIRV-Headers revision; fetch it through the
+# project's sync script rather than relying on an arbitrary system copy.
 recipe_spirv-tools() {
-    local src="$SRC_DIR/spirv-tools"
-    if [ ! -d "$src" ]; then
-        download_and_extract "https://github.com/KhronosGroup/SPIRV-Tools/archive/refs/tags/v2024.1.tar.gz" "$src"
+    local ver=v2024.1 src="$SRC_DIR/SPIRV-Tools-v2024.1"
+    download_and_extract "https://github.com/KhronosGroup/SPIRV-Tools/archive/refs/tags/$ver.tar.gz" "$src"
+    if [ -x "$src/utils/git-sync-deps" ]; then
+        ( cd "$src" && python3 utils/git-sync-deps )
     fi
-    # If a patch exists, apply it now:
-    #   patch -d "$src" -p1 < "$UPBGE_ANDROID_ROOT/build_files/android/patches/spirv-tools_android.diff"
-    cmake_android "$src" "$BUILD_DIR_BASE/spirv-tools-$ARCH"
+    [ -d "$src/external/spirv-headers/include/spirv" ] || {
+        echo "SPIRV-Tools dependency sync did not provide SPIRV-Headers" >&2
+        return 1
+    }
+    cmake_android "$src" "$BUILD_DIR_BASE/spirv-tools-$ARCH" \
+        -DSPIRV-Headers_SOURCE_DIR="$src/external/spirv-headers" \
+        -DSPIRV_SKIP_TESTS=ON -DSPIRV_SKIP_EXECUTABLES=ON \
+        -DSPIRV_WERROR=OFF -DBUILD_SHARED_LIBS=OFF
 }

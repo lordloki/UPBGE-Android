@@ -1,19 +1,15 @@
 #!/usr/bin/env bash
-# deps/recipes/shaderc.sh
-#
-# Source: https://github.com/google/shaderc/archive/refs/tags/v2024.1.tar.gz
-# Reference: Wanderson's build_files/android/deps/build.sh
-# 
-#
-# STATUS: stub. The skeleton below will fetch and call cmake_android; you
-#         likely need to add feature toggles, patch steps, or post-install
-#         fixes. See the README in this directory for the contract.
+# shaderc requires matching glslang and SPIRV-Tools source trees. Its own
+# DEPS sync script resolves the revisions pinned by this shaderc release.
 recipe_shaderc() {
-    local src="$SRC_DIR/shaderc"
-    if [ ! -d "$src" ]; then
-        download_and_extract "https://github.com/google/shaderc/archive/refs/tags/v2024.1.tar.gz" "$src"
+    local ver=v2024.1 src="$SRC_DIR/shaderc-v2024.1"
+    download_and_extract "https://github.com/google/shaderc/archive/refs/tags/$ver.tar.gz" "$src"
+    if [ -x "$src/utils/git-sync-deps" ]; then
+        ( cd "$src" && python3 utils/git-sync-deps )
     fi
-    # If a patch exists, apply it now:
-    #   patch -d "$src" -p1 < "$UPBGE_ANDROID_ROOT/build_files/android/patches/shaderc_android.diff"
-    cmake_android "$src" "$BUILD_DIR_BASE/shaderc-$ARCH"
+    cmake_android "$src" "$BUILD_DIR_BASE/shaderc-$ARCH" \
+        -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON \
+        -DSHADERC_SKIP_COPYRIGHT_CHECK=ON -DSHADERC_ENABLE_WGSL_OUTPUT=OFF \
+        -DSPIRV_SKIP_TESTS=ON -DSPIRV_SKIP_EXECUTABLES=ON \
+        -DBUILD_SHARED_LIBS=OFF
 }

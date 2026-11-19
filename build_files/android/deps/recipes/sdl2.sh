@@ -1,19 +1,11 @@
 #!/usr/bin/env bash
-# deps/recipes/sdl2.sh
-#
-# Source: https://github.com/libsdl-org/SDL/releases/download/release-2.30.5/SDL2-2.30.5.tar.gz
-# Reference: Wanderson's build_files/android/deps/build.sh
-# 
-#
-# STATUS: stub. The skeleton below will fetch and call cmake_android; you
-#         likely need to add feature toggles, patch steps, or post-install
-#         fixes. See the README in this directory for the contract.
+# SDL2 Android backend; native Android activity integration is provided by the APK.
 recipe_sdl2() {
-    local src="$SRC_DIR/sdl2"
-    if [ ! -d "$src" ]; then
-        download_and_extract "https://github.com/libsdl-org/SDL/releases/download/release-2.30.5/SDL2-2.30.5.tar.gz" "$src"
-    fi
-    # If a patch exists, apply it now:
-    #   patch -d "$src" -p1 < "$UPBGE_ANDROID_ROOT/build_files/android/patches/sdl2_android.diff"
-    cmake_android "$src" "$BUILD_DIR_BASE/sdl2-$ARCH"
+    local ver=2.30.5 src="$SRC_DIR/SDL2-$ver"
+    download_and_extract "https://github.com/libsdl-org/SDL/releases/download/release-$ver/SDL2-$ver.tar.gz" "$src"
+    cmake_android "$src" "$BUILD_DIR_BASE/sdl2-$ARCH" \
+        -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TEST=OFF \
+        -DSDL_ATOMIC=ON -DSDL_AUDIO=ON -DSDL_VIDEO=ON -DSDL_RENDER=ON \
+        -DSDL_JOYSTICK=ON -DSDL_HAPTIC=ON -DSDL_POWER=ON -DSDL_SENSOR=ON \
+        -DSDL_FILESYSTEM=ON -DSDL_LOADSO=ON -DSDL_THREADS=ON
 }
