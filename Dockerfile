@@ -24,7 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         gcc-14 g++-14 \
         clang-17 clang-tidy-17 clang-format-17 \
-        cmake ninja-build \
+        cmake ninja-build meson \
         git curl wget unzip zip \
         python3 python3-pip python3-venv \
         openjdk-17-jdk-headless \

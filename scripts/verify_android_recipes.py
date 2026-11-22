@@ -13,7 +13,8 @@ RECIPES_DIR = ROOT / "build_files/android/deps/recipes"
 
 def main() -> int:
     source = BUILD_SCRIPT.read_text(encoding="utf-8")
-    match = re.search(r"RECIPES=\((.*?)\)", source, re.DOTALL)
+    # The closing parenthesis is on its own line; comments may contain ")".
+    match = re.search(r"RECIPES=\((.*?)^\)", source, re.DOTALL | re.MULTILINE)
     if not match:
         print("Could not locate RECIPES array", file=sys.stderr)
         return 1

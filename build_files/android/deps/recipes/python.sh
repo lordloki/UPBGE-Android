@@ -1,34 +1,33 @@
 #!/usr/bin/env bash
-# CPython 3.11 cross-build. The host interpreter supplies build-time Python tools;
-# target objects are always compiled with the Android NDK.
+# CPython 3.13 cross-build (UPBGE master requires 3.13; Android is an official
+# tier-3 target since 3.13). The host interpreter supplies build-time Python
+# tools; target objects are always compiled with the Android NDK.
+#
+# One pristine source tree, two out-of-tree builds (host, target).
+#
+# Every stdlib extension module is linked INTO libpython3.13.a
+# (MODULE_BUILDTYPE=static): Android's linker never resolves a dlopen()ed
+# module's undefined Py* symbols against an already loaded library (not even
+# RTLD_GLOBAL, android/ndk#1244), so lib-dynload/*.so modules could not find
+# the interpreter statically linked into the player .so. Built-in modules also
+# skip one dlopen + relocation pass per import.
 recipe_python() {
-    local ver=3.11.9 mm=3.11 archive="$SRC_DIR/.downloads/Python-3.11.9.tgz"
-    local host_src="$SRC_DIR/Python-$ver-host" target_src="$SRC_DIR/Python-$ver-target"
-    local host_prefix="$BUILD_DIR_BASE/python-host" target_build="$BUILD_DIR_BASE/python-$ARCH"
+    local ver=3.13.13 mm=3.13
+    local src="$SRC_DIR/Python-$ver"
+    local host_build="$BUILD_DIR_BASE/python-host-build" host_prefix="$BUILD_DIR_BASE/python-host"
+    local target_build="$BUILD_DIR_BASE/python-$ARCH"
     local api="${ANDROID_PLATFORM#android-}"
     local ndk_bin="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$NDK_HOST_OS_TAG/bin"
 
-    mkdir -p "$SRC_DIR/.downloads"
-    if [ ! -s "$archive" ]; then
-        curl --fail --location --retry 4 --output "$archive.tmp" \
-            "https://www.python.org/ftp/python/$ver/Python-$ver.tgz"
-        mv "$archive.tmp" "$archive"
-    fi
-    if [ ! -f "$host_src/configure" ]; then
-        rm -rf "$host_src"; mkdir -p "$host_src"
-        tar -xzf "$archive" -C "$host_src" --strip-components=1
-    fi
-    if [ ! -f "$target_src/configure" ]; then
-        rm -rf "$target_src"; mkdir -p "$target_src"
-        tar -xzf "$archive" -C "$target_src" --strip-components=1
-    fi
+    download_and_extract "https://www.python.org/ftp/python/$ver/Python-$ver.tar.xz" "$src"
 
     if [ ! -x "$host_prefix/bin/python$mm" ]; then
-        mkdir -p "$host_prefix"
-        # Use the selected host compiler: the system default `cc` can be newer
-        # than this CPython release supports (GCC 15 defaults to C23).
-        ( cd "$host_src"
-          CC="${HOST_CC:-cc}" ./configure --prefix="$host_prefix" \
+        rm -rf "$host_build"
+        mkdir -p "$host_build" "$host_prefix"
+        # Use the selected host compiler: the system default `cc` may be newer
+        # than this CPython release was tested with.
+        ( cd "$host_build"
+          CC="${HOST_CC:-cc}" "$src/configure" --prefix="$host_prefix" \
               --without-ensurepip --disable-test-modules
           make -j"$JOBS"
           make install
@@ -43,10 +42,13 @@ recipe_python() {
         export CC="$ndk_bin/${TRIPLET}${api}-clang"
         export CXX="$ndk_bin/${TRIPLET}${api}-clang++"
         export AR="$ndk_bin/llvm-ar" RANLIB="$ndk_bin/llvm-ranlib"
+        export NM="$ndk_bin/llvm-nm" STRIP="$ndk_bin/llvm-strip"
         export READELF="$ndk_bin/llvm-readelf"
-        export CFLAGS="-O2 -fPIC -D__ANDROID_API__=$api -I$DEPS_PREFIX/include"
+        # Same as CPython's Android/android-env.sh: no compile-time PAGE_SIZE,
+        # so the result also runs on 16 KB page devices.
+        export CFLAGS="-O2 -fPIC -D__BIONIC_NO_PAGE_SIZE_MACRO"
         export CPPFLAGS="-I$DEPS_PREFIX/include"
-        export LDFLAGS="-L$DEPS_PREFIX/lib"
+        export LDFLAGS="-L$DEPS_PREFIX/lib -lm"
         # CPython's locale module uses GNU gettext when libintl.h is available.
         # Link the Android gettext runtime explicitly to resolve libintl_* symbols.
         # (lib64 cannot happen any more: build.sh neutralizes openSUSE's
@@ -57,22 +59,20 @@ recipe_python() {
             exit 1
         fi
         export LIBS="-lintl ${LIBS:-}"
-        export PKG_CONFIG_LIBDIR="$DEPS_PREFIX/lib/pkgconfig:$DEPS_PREFIX/share/pkgconfig"
-        "$target_src/configure" \
+        "$src/configure" \
             --host="$TRIPLET" \
-            --build="$("$target_src/config.guess")" \
+            --build="$("$src/config.guess")" \
             --with-build-python="$host_prefix/bin/python$mm" \
             --prefix="$DEPS_PREFIX" --libdir="$DEPS_PREFIX/lib" \
-            --enable-shared=no --without-ensurepip --disable-test-modules \
+            --disable-shared --without-ensurepip --disable-test-modules \
             --with-platlibdir=lib \
-            ac_cv_file__dev_ptmx=no ac_cv_file__dev_ptc=no \
-            ac_cv_buggy_getaddrinfo=no
+            MODULE_BUILDTYPE=static
         make -j"$JOBS"
         make install
     )
 
-    [ -d "$DEPS_PREFIX/lib/python$mm" ] || {
-        echo "CPython install did not create $DEPS_PREFIX/lib/python$mm" >&2
+    [ -f "$DEPS_PREFIX/lib/libpython$mm.a" ] || {
+        echo "CPython install did not create $DEPS_PREFIX/lib/libpython$mm.a" >&2
         return 1
     }
 }

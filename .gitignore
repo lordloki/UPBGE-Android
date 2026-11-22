@@ -16,6 +16,8 @@ __pycache__/
 # Build scratch
 /build/
 /build_*/
+# ...but not the build system itself (otherwise new files there are ignored).
+!/build_files/
 /upbge_src/
 /upbge_android_build_base/
 

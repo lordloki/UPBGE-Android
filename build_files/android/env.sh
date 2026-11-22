@@ -102,6 +102,7 @@ env_check() {
     [ -d "$JAVA_HOME" ]            || missing+=("JAVA_HOME ($JAVA_HOME)")
     command -v cmake >/dev/null    || missing+=("cmake")
     command -v ninja >/dev/null    || missing+=("ninja")
+    command -v meson >/dev/null    || missing+=("meson")
     command -v python3 >/dev/null  || missing+=("python3")
     [ -n "$HOST_CC" ]              || pick_host_cc || missing+=("HOST_CC")
     if [ ${#missing[@]} -gt 0 ]; then

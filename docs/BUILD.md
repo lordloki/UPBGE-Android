@@ -131,7 +131,7 @@ bash scripts/fetch_upbge.sh --reset
 make deps ARCH=arm64-v8a
 ```
 
-This builds the 30 libraries listed in `docs/DEPENDENCIES.md` into
+This builds the 36 libraries listed in `docs/DEPENDENCIES.md` into
 `~/upbge_android_build_base/lib/android_<arch>/`.
 
 Logs land in `~/upbge_android_build_base/logs/deps_<arch>.log`; on failure the

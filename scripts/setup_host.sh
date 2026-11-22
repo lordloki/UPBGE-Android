@@ -87,7 +87,7 @@ install_debian() {
         build-essential \
         gcc-14 g++-14 \
         clang-17 clang-format-17 clang-tidy-17 \
-        cmake ninja-build \
+        cmake ninja-build meson \
         git curl wget unzip zip \
         python3 python3-pip python3-venv \
         openjdk-17-jdk-headless \
@@ -143,9 +143,9 @@ install_opensuse() {
         patterns-devel-base-devel_basis \
         gcc14 gcc14-c++ \
         "${CLANG_PACKAGES[@]}" \
-        cmake ninja \
+        cmake ninja meson \
         git curl wget unzip zip \
-        python311 python311-pip \
+        python3 python3-pip \
         java-17-openjdk-devel \
         pkgconf autoconf automake libtool bison flex \
         file texinfo bzip2 xz
@@ -178,7 +178,7 @@ install_fedora() {
     run_sudo dnf install -y \
         @development-tools gcc gcc-c++ \
         clang clang-devel \
-        cmake ninja-build \
+        cmake ninja-build meson \
         git curl wget unzip zip \
         python3 python3-pip \
         java-17-openjdk-devel \
@@ -218,7 +218,7 @@ esac
 # 3. Verify
 # ---------------------------------------------------------------------------
 info "verification:"
-for bin in gcc g++ clang clang++ cmake ninja python3 java; do
+for bin in gcc g++ clang clang++ cmake ninja meson python3 java; do
     if command -v "$bin" >/dev/null 2>&1; then
         ver="$("$bin" --version 2>&1 | head -1)"
         echo "  $bin: $ver"

@@ -27,8 +27,12 @@ directory as inactive placeholders and are not loaded.
 
 ## Important Android-specific decisions
 
-- Boost uses Boost.Build (`b2`), not CMake.
-- OpenEXR builds its matching Imath dependency first.
+- OpenEXR builds its matching Imath dependency first; OpenJPH is a separate
+  recipe because a static OpenEXR cannot export its vendored copy.
+- libtiff's static `TiffConfig.cmake` does not import its dependencies; the
+  recipe patches the installed file so OIIO/Blender can configure.
+- CPython 3.13 is static with `MODULE_BUILDTYPE=static`: Android cannot
+  resolve a dlopen()ed extension module against a statically linked interpreter.
 - FFmpeg is built as static libraries with the required internal decoders; it
   does not probe host codec libraries. All seven libraries Blender's
   FindFFmpeg requires are built (avdevice/avfilter without devices/filters).

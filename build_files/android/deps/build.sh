@@ -147,10 +147,13 @@ recipe_hash() {
 # The recipe list is ordered by dependency: later recipes may -I/-L against
 # earlier ones. This is the player-only dependency set; optional codecs not
 # required by the runtime are deliberately excluded.
+#
+# Not built (nothing in the player-only configuration links them): lz4,
+# boost, openjpeg, sdl2 (UPBGE master uses SDL3, and WITH_SDL is OFF) and
+# spirv-tools (shaderc builds and embeds its own copy).
 RECIPES=(
     zlib
     zstd
-    lz4
     libpng
     libjpeg
     libwebp
@@ -158,10 +161,9 @@ RECIPES=(
     gettext
     sqlite
     python
-    boost
-    openjpeg
     tiff
-    openexr
+    openjph         # OpenEXR (HTJ2K)
+    openexr         # + Imath
     fftw3           # game engine audio
     ogg
     flac
@@ -169,10 +171,19 @@ RECIPES=(
     opus
     sndfile
     ffmpeg
-    sdl2
     openal
     glew
-    spirv-tools
+    fmt
+    robinmap        # OpenImageIO
+    expat           # OpenColorIO
+    yamlcpp         # OpenColorIO
+    pystring        # OpenColorIO
+    minizipng       # OpenColorIO
+    opencolorio
+    openimageio
+    eigen
+    sse2neon
+    epoxy
     shaderc
     vulkan_headers
     vulkan_loader
