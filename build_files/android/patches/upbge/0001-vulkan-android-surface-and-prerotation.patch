@@ -1,0 +1,526 @@
+Vulkan on Android: surface creation and zero-cost pre-rotation.
+
+Blender-owned files; every hunk is enclosed in "UPBGE - Android" comments
+so merges from Blender show at a glance what is ours.
+
+- GHOST_ContextVK: VK_KHR_android_surface platform (the ANativeWindow travels
+  in the X11 window slot), swapchain pre-rotation (identity extent,
+  preTransform = currentTransform, STORAGE usage) with compositor fallback,
+  SUBOPTIMAL handling, INHERIT composite alpha fallback.
+- GHOST_Types: GHOST_VulkanSwapChainData::pre_transform.
+- volk: load the Android surface entry point.
+- gpu/vulkan: logical-orientation back buffer and a rotating compute copy
+  into the swapchain (vk_backbuffer_rotate), in place of the blit.
+
+Base: UPBGE master 42b4210c153769f44c262fdeab6f0f805a551911
+Apply: scripts/apply_patches.sh (patch -p1 in the UPBGE checkout)
+
+diff --git a/extern/volk/volk_impl.cc b/extern/volk/volk_impl.cc
+index 9d6c4cfb..e39c513a 100644
+--- a/extern/volk/volk_impl.cc
++++ b/extern/volk/volk_impl.cc
+@@ -7,6 +7,10 @@
+ #  define VK_USE_PLATFORM_WIN32_KHR
+ #elif defined(__APPLE__)
+ #  define VK_USE_PLATFORM_METAL_EXT
++/* UPBGE - Android: no X11/Wayland headers in the NDK; load the Android surface entry point. */
++#elif defined(__ANDROID__)
++#  define VK_USE_PLATFORM_ANDROID_KHR
++/* UPBGE - Android */
+ #else
+ #  define VK_USE_PLATFORM_WAYLAND_KHR
+ #  define VK_USE_PLATFORM_XLIB_KHR
+diff --git a/intern/ghost/GHOST_Types.hh b/intern/ghost/GHOST_Types.hh
+index 2a4beefb..81ff35cb 100644
+--- a/intern/ghost/GHOST_Types.hh
++++ b/intern/ghost/GHOST_Types.hh
+@@ -944,6 +944,12 @@ struct GHOST_VulkanSwapChainData {
+   VkFence submission_fence;
+   /* Factor to scale SDR content to HDR. */
+   float sdr_scale;
++  /* UPBGE - Android: transform the copy into `image` must apply (pre-rotation). `extent` is the
++   * swapchain (display identity) extent; the back buffer keeps the window's logical extent. */
++#ifdef __ANDROID__
++  VkSurfaceTransformFlagBitsKHR pre_transform;
++#endif
++  /* UPBGE - Android */
+ };
+ 
+ enum GHOST_TVulkanXRModes {
+diff --git a/intern/ghost/intern/GHOST_ContextVK.cc b/intern/ghost/intern/GHOST_ContextVK.cc
+index 60a0ec1a..8034d26c 100644
+--- a/intern/ghost/intern/GHOST_ContextVK.cc
++++ b/intern/ghost/intern/GHOST_ContextVK.cc
+@@ -22,6 +22,11 @@
+ #  ifdef WITH_GHOST_WAYLAND
+ #    define VK_USE_PLATFORM_WAYLAND_KHR
+ #  endif
++/* UPBGE - Android */
++#  ifdef __ANDROID__
++#    define VK_USE_PLATFORM_ANDROID_KHR
++#  endif
++/* UPBGE - Android */
+ #endif
+ #include "volk.h"
+ 
+@@ -1069,6 +1074,14 @@ GHOST_TSuccess GHOST_ContextVK::swapBufferAcquire()
+           submission_frame_data.acquire_semaphore,
+           VK_NULL_HANDLE,
+           &image_index);
++      /* UPBGE - Android: SUBOPTIMAL is permanent in the compositor-rotation fallback; rebuilding
++       * there would spin in this loop forever. */
++#ifdef __ANDROID__
++      if (acquire_result == VK_SUBOPTIMAL_KHR && !androidSuboptimalNeedsRebuild()) {
++        acquire_result = VK_SUCCESS;
++      }
++#endif
++      /* UPBGE - Android */
+       if (ELEM(acquire_result, VK_ERROR_OUT_OF_DATE_KHR, VK_SUBOPTIMAL_KHR)) {
+         recreateSwapchain(use_hdr_swapchain);
+       }
+@@ -1174,6 +1187,11 @@ GHOST_TSuccess GHOST_ContextVK::swapBufferRelease()
+   swap_chain_data.acquire_semaphore = submission_frame_data.acquire_semaphore;
+   swap_chain_data.present_semaphore = swapchain_image.present_semaphore;
+   swap_chain_data.sdr_scale = (hdr_info_) ? hdr_info_->sdr_white_level : 1.0f;
++  /* UPBGE - Android */
++#ifdef __ANDROID__
++  swap_chain_data.pre_transform = pre_transform_;
++#endif
++  /* UPBGE - Android */
+ 
+   device_vk.functions.vkResetFences(vk_device, 1, &submission_frame_data.submission_fence);
+   if (swap_buffer_draw_callback_) {
+@@ -1206,6 +1224,13 @@ GHOST_TSuccess GHOST_ContextVK::swapBufferRelease()
+     this->setPresentFence(swapchain_, present_fence);
+   }
+   acquired_swapchain_image_index_.reset();
++  /* UPBGE - Android: see the acquire loop. */
++#ifdef __ANDROID__
++  if (present_result == VK_SUBOPTIMAL_KHR && !androidSuboptimalNeedsRebuild()) {
++    present_result = VK_SUCCESS;
++  }
++#endif
++  /* UPBGE - Android */
+ 
+   if (ELEM(present_result, VK_ERROR_OUT_OF_DATE_KHR, VK_SUBOPTIMAL_KHR)) {
+     recreateSwapchain(use_hdr_swapchain);
+@@ -1228,6 +1253,11 @@ GHOST_TSuccess GHOST_ContextVK::getVulkanSwapChainFormat(
+   r_swap_chain_data->surface_format = surface_format_;
+   r_swap_chain_data->extent = render_extent_;
+   r_swap_chain_data->sdr_scale = (hdr_info_) ? hdr_info_->sdr_white_level : 1.0f;
++  /* UPBGE - Android */
++#ifdef __ANDROID__
++  r_swap_chain_data->pre_transform = pre_transform_;
++#endif
++  /* UPBGE - Android */
+ 
+   return GHOST_kSuccess;
+ }
+@@ -1534,6 +1564,32 @@ static void getVsyncUPBGEOVerride(bool swap_interval_set, int swap_interval, GHO
+ }
+ /* UPBGE - override vsync_hint with bge runtime parameter */
+ 
++/* UPBGE - Android */
++#ifdef __ANDROID__
++bool GHOST_ContextVK::androidSuboptimalNeedsRebuild()
++{
++  if (!prerotation_capable_ || surface_ == VK_NULL_HANDLE) {
++    return false;
++  }
++  GHOST_DeviceVK &device_vk = vulkan_instance.value().device.value();
++  VkSurfaceCapabilitiesKHR capabilities = {};
++  if (volk::vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
++          device_vk.vk_physical_device, surface_, &capabilities) != VK_SUCCESS)
++  {
++    return false;
++  }
++  /* A rebuild declares currentTransform (rotations) or IDENTITY; anything else is final. */
++  const VkSurfaceTransformFlagBitsKHR wanted =
++      (capabilities.currentTransform & (VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR |
++                                        VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR |
++                                        VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR)) ?
++          capabilities.currentTransform :
++          VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
++  return wanted != pre_transform_;
++}
++#endif
++/* UPBGE - Android */
++
+ GHOST_TSuccess GHOST_ContextVK::recreateSwapchain(bool use_hdr_swapchain, bool upbge_vsync_override)
+ {
+   GHOST_InstanceVK &instance_vk = vulkan_instance.value();
+@@ -1588,6 +1644,34 @@ GHOST_TSuccess GHOST_ContextVK::recreateSwapchain(bool use_hdr_swapchain, bool u
+ 
+   supported_swapchain_usage_ = capabilities.supportedUsageFlags;
+   use_hdr_swapchain_ = use_hdr_swapchain;
++  /* UPBGE - Android: pre-rotation.
++   * currentExtent is reported in the current orientation. To avoid SurfaceFlinger rotating every
++   * frame (a GPU composition pass that preempts the app), declare currentTransform and size the
++   * swapchain in the display's identity orientation; the GPU backend's (already existing) copy
++   * from the back buffer then writes the image rotated, through a storage image. Only for the SDR
++   * RGBA8 path; otherwise stay IDENTITY and let the compositor rotate. */
++#ifdef __ANDROID__
++  pre_transform_ = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
++  {
++    const VkSurfaceTransformFlagBitsKHR current = capabilities.currentTransform;
++    const VkSurfaceTransformFlagsKHR rotations = VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR |
++                                                 VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR |
++                                                 VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR;
++    prerotation_capable_ = !use_hdr_swapchain &&
++                           surface_format_.format == VK_FORMAT_R8G8B8A8_UNORM &&
++                           (capabilities.supportedUsageFlags & VK_IMAGE_USAGE_STORAGE_BIT) &&
++                           capabilities.currentExtent.width != UINT32_MAX;
++    if ((current & rotations) && prerotation_capable_) {
++      pre_transform_ = current;
++      if (current & (VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR |
++                     VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR))
++      {
++        std::swap(capabilities.currentExtent.width, capabilities.currentExtent.height);
++      }
++    }
++  }
++#endif
++  /* UPBGE - Android */
+   render_extent_ = capabilities.currentExtent;
+   render_extent_min_ = capabilities.minImageExtent;
+   if (render_extent_.width == UINT32_MAX) {
+@@ -1702,6 +1786,14 @@ GHOST_TSuccess GHOST_ContextVK::recreateSwapchain(bool use_hdr_swapchain, bool u
+   create_info.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                            (use_hdr_swapchain ? VK_IMAGE_USAGE_STORAGE_BIT : 0);
+   create_info.preTransform = capabilities.currentTransform;
++  /* UPBGE - Android: see pre_transform_. The rotating copy writes through a storage image. */
++#ifdef __ANDROID__
++  create_info.preTransform = pre_transform_;
++  if (pre_transform_ != VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
++    create_info.imageUsage |= VK_IMAGE_USAGE_STORAGE_BIT;
++  }
++#endif
++  /* UPBGE - Android */
+   /* Alpha lets the compositor blend the surface against the desktop, needed by CSD for rounded
+    * window corners. Not all surfaces support it, so fall back to opaque in those cases. The caller
+    * handles the lack of transparency by drawing square corners, see #GHOST_Context::hasAlpha. */
+@@ -1714,6 +1806,13 @@ GHOST_TSuccess GHOST_ContextVK::recreateSwapchain(bool use_hdr_swapchain, bool u
+     create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+     context_params_.use_alpha = false;
+   }
++  /* UPBGE - Android: some Android surfaces only expose INHERIT. */
++#ifdef __ANDROID__
++  if (!(capabilities.supportedCompositeAlpha & create_info.compositeAlpha)) {
++    create_info.compositeAlpha = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
++  }
++#endif
++  /* UPBGE - Android */
+   create_info.presentMode = present_mode;
+   create_info.clipped = VK_TRUE;
+   create_info.oldSwapchain = old_swapchain;
+@@ -1840,6 +1939,13 @@ std::vector<const char *> GHOST_ContextVK::getPlatformSpecificSurfaceExtensions(
+       extensions.push_back(VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME);
+       break;
+ #  endif
++/* UPBGE - Android */
++#  ifdef __ANDROID__
++    case GHOST_kVulkanPlatformAndroid:
++      extensions.push_back(VK_KHR_ANDROID_SURFACE_EXTENSION_NAME);
++      break;
++#  endif
++/* UPBGE - Android */
+     case GHOST_kVulkanPlatformHeadless:
+       break;
+   }
+@@ -1869,6 +1975,13 @@ GHOST_TSuccess GHOST_ContextVK::initializeDrawingContext()
+       use_window_surface = (wayland_display_ != nullptr) && (wayland_surface_ != nullptr);
+       break;
+ #  endif
++/* UPBGE - Android */
++#  ifdef __ANDROID__
++    case GHOST_kVulkanPlatformAndroid:
++      use_window_surface = (window_ != nullptr);
++      break;
++#  endif
++/* UPBGE - Android */
+     case GHOST_kVulkanPlatformHeadless:
+       use_window_surface = false;
+       break;
+@@ -1991,6 +2104,19 @@ GHOST_TSuccess GHOST_ContextVK::initializeDrawingContext()
+         break;
+       }
+ #  endif
++/* UPBGE - Android */
++#  ifdef __ANDROID__
++      case GHOST_kVulkanPlatformAndroid: {
++        VkAndroidSurfaceCreateInfoKHR surface_create_info = {};
++        surface_create_info.sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
++        surface_create_info.window = static_cast<ANativeWindow *>(window_);
++        VK_CHECK(volk::vkCreateAndroidSurfaceKHR(
++                     instance_vk.vk_instance, &surface_create_info, nullptr, &surface_),
++                 GHOST_kFailure);
++        break;
++      }
++#  endif
++/* UPBGE - Android */
+       case GHOST_kVulkanPlatformHeadless: {
+         surface_ = VK_NULL_HANDLE;
+         break;
+diff --git a/intern/ghost/intern/GHOST_ContextVK.hh b/intern/ghost/intern/GHOST_ContextVK.hh
+index ae80f2f3..e4b870f3 100644
+--- a/intern/ghost/intern/GHOST_ContextVK.hh
++++ b/intern/ghost/intern/GHOST_ContextVK.hh
+@@ -66,6 +66,11 @@ enum GHOST_TVulkanPlatformType {
+ #ifdef WITH_GHOST_WAYLAND
+   GHOST_kVulkanPlatformWayland = 2,
+ #endif
++/* UPBGE - Android: ANativeWindow surface (passed through the X11 `window` slot). */
++#ifdef __ANDROID__
++  GHOST_kVulkanPlatformAndroid = 3,
++#endif
++/* UPBGE - Android */
+ };
+ 
+ struct GHOST_ContextVK_WindowInfo {
+@@ -291,6 +296,21 @@ class GHOST_ContextVK : public GHOST_Context {
+   VkSurfaceFormatKHR surface_format_;
+   bool use_hdr_swapchain_;
+ 
++  /* UPBGE - Android: transform declared at swapchain creation. When it equals the surface's
++   * currentTransform the swapchain uses the display's identity extent and the GPU backend writes
++   * the frame pre-rotated (rotating copy to the swapchain), so SurfaceFlinger does not need an
++   * extra composition pass. IDENTITY means "not pre-rotated" (the compositor rotates). */
++#ifdef __ANDROID__
++  VkSurfaceTransformFlagBitsKHR pre_transform_ = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
++  /* Swapchain format/usage allow pre-rotation; otherwise rebuilding never helps. */
++  bool prerotation_capable_ = false;
++  /* Android 10+ returns VK_SUBOPTIMAL_KHR whenever preTransform != currentTransform. Only worth
++   * a rebuild when the new transform could be pre-rotated. Queries the surface: call it only
++   * on SUBOPTIMAL. */
++  bool androidSuboptimalNeedsRebuild();
++#endif
++  /* UPBGE - Android */
++
+   /* Image usages the surface supports on its swapchain images.
+    *
+    * HDR capable swapchains require support of storage usage.
+diff --git a/source/blender/gpu/CMakeLists.txt b/source/blender/gpu/CMakeLists.txt
+index d0d3a626..b86d3c09 100644
+--- a/source/blender/gpu/CMakeLists.txt
++++ b/source/blender/gpu/CMakeLists.txt
+@@ -825,6 +825,15 @@ set(VULKAN_BACKEND_GLSL_SRC
+ 
+   vulkan/shaders/vk_backbuffer_blit_comp.glsl
+ )
++# UPBGE - Android: pre-rotated swapchain copy.
++if(ANDROID)
++  list(APPEND VULKAN_BACKEND_GLSL_SRC
++    vulkan/shaders/vk_backbuffer_rotate_infos.hh
++
++    vulkan/shaders/vk_backbuffer_rotate_comp.glsl
++  )
++endif()
++# UPBGE - Android
+ 
+ if(WITH_GTESTS)
+   if(WITH_GPU_BACKEND_TESTS)
+diff --git a/source/blender/gpu/vulkan/shaders/vk_backbuffer_rotate_comp.glsl b/source/blender/gpu/vulkan/shaders/vk_backbuffer_rotate_comp.glsl
+new file mode 100644
+index 00000000..35242188
+--- /dev/null
++++ b/source/blender/gpu/vulkan/shaders/vk_backbuffer_rotate_comp.glsl
+@@ -0,0 +1,45 @@
++/* SPDX-FileCopyrightText: 2026 UPBGE Authors
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later */
++
++/* UPBGE - Android: copy the back buffer into a swapchain image that lives in the display's
++ * identity orientation, applying the surface transform the swapchain was created with.
++ *
++ * Image rows are top-down on screen. The back buffer is bottom-up (GL convention), which is why
++ * the identity case flips Y exactly like the regular blit. Composing that flip with a clockwise
++ * rotation of the W x H logical frame `L` gives, for a destination texel `d`:
++ *   identity: L(d.x,         d.y)         = src(d.x,         H - 1 - d.y)
++ *   rot 90:   L(d.y,         H - 1 - d.x) = src(d.y,         d.x)
++ *   rot 180:  L(W - 1 - d.x, H - 1 - d.y) = src(W - 1 - d.x, d.y)
++ *   rot 270:  L(W - 1 - d.y, d.x)         = src(W - 1 - d.y, H - 1 - d.x)
++ * `rotation` is uniform across the dispatch, so the switch is a uniform branch. 16x16 groups
++ * keep the transposed reads of the 90/270 cases inside one 16x16 source tile. */
++
++#include "vk_backbuffer_rotate_infos.hh"
++
++COMPUTE_SHADER_CREATE_INFO(vk_backbuffer_rotate)
++
++void main()
++{
++  int2 d = int2(gl_GlobalInvocationID.xy);
++  if (any(greaterThanEqual(d, int2(imageSize(dst_img))))) {
++    return;
++  }
++  int2 s = int2(imageSize(src_img));
++  int2 src_texel;
++  switch (rotation) {
++    case 1:
++      src_texel = int2(d.y, d.x);
++      break;
++    case 2:
++      src_texel = int2(s.x - 1 - d.x, d.y);
++      break;
++    case 3:
++      src_texel = int2(s.x - 1 - d.y, s.y - 1 - d.x);
++      break;
++    default:
++      src_texel = int2(d.x, s.y - 1 - d.y);
++      break;
++  }
++  imageStore(dst_img, d, imageLoad(src_img, src_texel));
++}
+diff --git a/source/blender/gpu/vulkan/shaders/vk_backbuffer_rotate_infos.hh b/source/blender/gpu/vulkan/shaders/vk_backbuffer_rotate_infos.hh
+new file mode 100644
+index 00000000..ef0eb2a9
+--- /dev/null
++++ b/source/blender/gpu/vulkan/shaders/vk_backbuffer_rotate_infos.hh
+@@ -0,0 +1,22 @@
++/* SPDX-FileCopyrightText: 2026 UPBGE Authors
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later */
++
++/* UPBGE - Android: back buffer -> pre-rotated swapchain copy. */
++
++#ifdef GPU_SHADER
++#  pragma once
++#endif
++
++#include "gpu_shader_create_info.hh"
++
++GPU_SHADER_CREATE_INFO(vk_backbuffer_rotate)
++LOCAL_GROUP_SIZE(16, 16)
++IMAGE(0, UNORM_8_8_8_8, read, Float2D, src_img)
++IMAGE(1, UNORM_8_8_8_8, write, Float2D, dst_img)
++/* 0 = identity, 1 = rotate 90, 2 = rotate 180, 3 = rotate 270 (clockwise, as in
++ * VkSurfaceTransformFlagBitsKHR). */
++PUSH_CONSTANT(int, rotation)
++COMPUTE_SOURCE("vk_backbuffer_rotate_comp.glsl")
++DO_STATIC_COMPILATION()
++GPU_SHADER_CREATE_END()
+diff --git a/source/blender/gpu/vulkan/vk_context.cc b/source/blender/gpu/vulkan/vk_context.cc
+index 8375508f..01cb6054 100644
+--- a/source/blender/gpu/vulkan/vk_context.cc
++++ b/source/blender/gpu/vulkan/vk_context.cc
+@@ -70,6 +70,17 @@ void VKContext::sync_backbuffer()
+   if (ghost_window_) {
+     GHOST_VulkanSwapChainData swap_chain_data = {};
+     ghost_window_->getVulkanSwapChainFormat(&swap_chain_data);
++    /* UPBGE - Android: a pre-rotated swapchain is sized in the display's identity orientation.
++     * The back buffer (everything the engine renders) keeps the window's logical orientation;
++     * only the final copy to the swapchain rotates. */
++#ifdef __ANDROID__
++    if (swap_chain_data.pre_transform &
++        (VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR | VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR))
++    {
++      std::swap(swap_chain_data.extent.width, swap_chain_data.extent.height);
++    }
++#endif
++    /* UPBGE - Android */
+ 
+     const bool reset_framebuffer = swap_chain_format_.format !=
+                                        swap_chain_data.surface_format.format ||
+@@ -451,6 +462,42 @@ void VKContext::swap_buffer_draw_handler(const GHOST_VulkanSwapChainData &swap_c
+                                                                         "SwapchainImage");
+ 
+   GPU_debug_group_begin("BackBuffer.Blit");
++  /* UPBGE - Android */
++  VkPipelineStageFlags swapchain_wait_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
++#ifdef __ANDROID__
++  if (swap_chain_data.pre_transform != VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
++    /* Pre-rotation: same storage-image copy as the HDR path. One load and one store per texel,
++     * the same traffic as the blit it replaces, and SurfaceFlinger skips its rotation pass. */
++    VKTexture swap_chain_texture("swap_chain_texture");
++    swap_chain_texture.init_swapchain(swap_chain_data.image,
++                                      resource_handle,
++                                      to_gpu_format(swap_chain_data.surface_format.format));
++    int rotation = 3; /* VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR */
++    if (swap_chain_data.pre_transform == VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR) {
++      rotation = 1;
++    }
++    else if (swap_chain_data.pre_transform == VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR) {
++      rotation = 2;
++    }
++    Shader *shader = device.vk_backbuffer_rotate_sh_get();
++    GPU_shader_bind(shader);
++    GPU_shader_uniform_1i(shader, "rotation", rotation);
++    VKStateManager &state_manager = state_manager_get();
++    state_manager.image_bind(color_attachment, 0);
++    state_manager.image_bind(&swap_chain_texture, 1);
++    int2 dispatch_size = math::divide_ceil(
++        int2(swap_chain_data.extent.width, swap_chain_data.extent.height), int2(16));
++    VKBackend::get().compute_dispatch(UNPACK2(dispatch_size), 1);
++    /* The tracker starts swapchain images at COLOR_ATTACHMENT_OUTPUT, so the acquire wait must
++     * cover that stage for the layout transition to chain after it, and the compute stage for
++     * the writes. It only stalls when the presentation engine still holds the image, i.e. when
++     * we are display-bound and the GPU has slack anyway. */
++    swapchain_wait_stages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
++                            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
++  }
++  else
++#endif
++  /* UPBGE - Android */
+   if (use_shader) {
+     VKTexture swap_chain_texture("swap_chain_texture");
+     swap_chain_texture.init_swapchain(swap_chain_data.image,
+@@ -502,7 +549,8 @@ void VKContext::swap_buffer_draw_handler(const GHOST_VulkanSwapChainData &swap_c
+   flush_render_graph(RenderGraphFlushFlags::SUBMIT | RenderGraphFlushFlags::RENEW_RENDER_GRAPH |
+                          (wait_for_submission ? RenderGraphFlushFlags::WAIT_FOR_SUBMISSION :
+                                                 RenderGraphFlushFlags::NONE),
+-                     VK_PIPELINE_STAGE_TRANSFER_BIT,
++                     /* UPBGE - Android: was VK_PIPELINE_STAGE_TRANSFER_BIT. */
++                     swapchain_wait_stages,
+                      swap_chain_data.acquire_semaphore,
+                      swap_chain_data.present_semaphore,
+                      swap_chain_data.submission_fence);
+diff --git a/source/blender/gpu/vulkan/vk_device.cc b/source/blender/gpu/vulkan/vk_device.cc
+index d7fcd60d..b5959f47 100644
+--- a/source/blender/gpu/vulkan/vk_device.cc
++++ b/source/blender/gpu/vulkan/vk_device.cc
+@@ -113,6 +113,11 @@ void VKDevice::deinit()
+   dummy_buffer.free();
+   samplers_.free();
+   GPU_SHADER_FREE_SAFE(vk_backbuffer_blit_sh_);
++  /* UPBGE - Android */
++#ifdef __ANDROID__
++  GPU_SHADER_FREE_SAFE(vk_backbuffer_rotate_sh_);
++#endif
++  /* UPBGE - Android */
+ 
+   /* Destroy resources that reached a zero ref count but were never consumed by a submission,
+    * as no further submissions will drain them. */
+diff --git a/source/blender/gpu/vulkan/vk_device.hh b/source/blender/gpu/vulkan/vk_device.hh
+index ed7a2489..93027a8b 100644
+--- a/source/blender/gpu/vulkan/vk_device.hh
++++ b/source/blender/gpu/vulkan/vk_device.hh
+@@ -249,6 +249,11 @@ class VKDevice : public NonCopyable {
+   std::string glsl_comp_patch_;
+ 
+   Shader *vk_backbuffer_blit_sh_ = nullptr;
++  /* UPBGE - Android */
++#ifdef __ANDROID__
++  Shader *vk_backbuffer_rotate_sh_ = nullptr;
++#endif
++  /* UPBGE - Android */
+ 
+  public:
+   render_graph::VKResourceStateTracker resources;
+@@ -459,6 +464,18 @@ class VKDevice : public NonCopyable {
+     return vk_backbuffer_blit_sh_;
+   }
+ 
++  /* UPBGE - Android */
++#ifdef __ANDROID__
++  Shader *vk_backbuffer_rotate_sh_get()
++  {
++    if (vk_backbuffer_rotate_sh_ == nullptr) {
++      vk_backbuffer_rotate_sh_ = GPU_shader_create_from_info_name("vk_backbuffer_rotate");
++    }
++    return vk_backbuffer_rotate_sh_;
++  }
++#endif
++  /* UPBGE - Android */
++
+  private:
+   void init_physical_device_properties();
+   void init_physical_device_memory_properties();

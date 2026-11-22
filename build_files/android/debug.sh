@@ -2,19 +2,18 @@
 # build_files/android/debug.sh
 #
 # Tiny subset of Wanderson's debug.sh — reads/writes blender_args.txt in the
-# app's external files dir (/sdcard/Android/data/org.upbge.player/files/)
-# and shows logcat for the player process.
+# app's external files dir (/sdcard/Android/data/org.upbge.player/files/),
+# whose whitespace-separated flags android_main() passes to the player before
+# `-w <game>`, and shows logcat for the player process.
 
 set -euo pipefail
 PKG="org.upbge.player"
 EXT="/sdcard/Android/data/$PKG/files"
-INT="/data/data/$PKG/files"
 
 cmd_status() {
     adb shell pidof "$PKG" || echo "not running"
     echo "--- args file ---"
-    adb shell run-as "$PKG" cat "$INT/blender_args.txt" 2>/dev/null || \
-        adb shell cat "$EXT/blender_args.txt" 2>/dev/null || echo "(no args file)"
+    adb shell cat "$EXT/blender_args.txt" 2>/dev/null || echo "(no args file)"
 }
 
 cmd_on() {
@@ -22,7 +21,7 @@ cmd_on() {
     adb shell mkdir -p "$EXT"
     adb shell "echo '$flags' > $EXT/blender_args.txt"
     adb shell am force-stop "$PKG"
-    adb shell am start -n "$PKG/.MainActivity"
+    adb shell am start -n "$PKG/android.app.NativeActivity"
 }
 
 cmd_off() {
@@ -31,7 +30,7 @@ cmd_off() {
 }
 
 cmd_log() {
-    adb logcat -s upbge_ghost:V upbge_main:V upbge_player_wrap:V blender:V
+    adb logcat -s UPBGE:V DEBUG:V
 }
 
 cmd_crash() {

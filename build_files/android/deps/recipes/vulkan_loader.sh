@@ -15,4 +15,26 @@ recipe_vulkan_loader() {
     fi
     mkdir -p "$DEPS_PREFIX/lib"
     cp -f "$stub" "$DEPS_PREFIX/lib/libvulkan.so"
+
+    # Without LIBDIR, platform_unix.cmake finds Vulkan with pkg-config. The
+    # Khronos loader would install this file; the NDK stub does not.
+    local hdr="$DEPS_PREFIX/include/vulkan/vulkan_core.h"
+    local patch
+    patch="$(sed -n 's/^#define VK_HEADER_VERSION \([0-9]*\).*/\1/p' "$hdr" 2>/dev/null)"
+    if [ -z "$patch" ]; then
+        echo "vulkan_loader: $hdr missing (build vulkan_headers first)" >&2
+        return 1
+    fi
+    mkdir -p "$DEPS_PREFIX/lib/pkgconfig"
+    cat > "$DEPS_PREFIX/lib/pkgconfig/vulkan.pc" <<EOF
+prefix=$DEPS_PREFIX
+libdir=\${prefix}/lib
+includedir=\${prefix}/include
+
+Name: Vulkan-Loader
+Description: Android system Vulkan loader (NDK link stub)
+Version: 1.4.$patch
+Libs: -L\${libdir} -lvulkan
+Cflags: -I\${includedir}
+EOF
 }

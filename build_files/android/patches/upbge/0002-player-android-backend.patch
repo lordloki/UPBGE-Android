@@ -1,0 +1,1402 @@
+Android player: GHOST backend, NativeActivity entry point and build glue.
+
+UPBGE-owned files (source/gameengine, source/blenderplayer).
+
+- GamePlayer/android: GPG_SystemAndroid / GPG_WindowAndroid (GHOST over
+  android_native_app_glue: looper events, touch as mouse, keys, lifecycle v1:
+  losing the window ends the game) and android_main() (asset extraction,
+  environment, stdout/stderr to logcat, argv).
+- GPG_ghost.cpp: main() is GPG_main() on Android and creates that system.
+- CMake: Android sources in ge_player; blenderplayer is the NativeActivity
+  library libupbgeplayer.so with the glue compiled in.
+
+Base: UPBGE master 42b4210c153769f44c262fdeab6f0f805a551911
+Apply: scripts/apply_patches.sh (patch -p1 in the UPBGE checkout)
+
+diff --git a/source/blenderplayer/CMakeLists.txt b/source/blenderplayer/CMakeLists.txt
+index db25c676..009e3462 100644
+--- a/source/blenderplayer/CMakeLists.txt
++++ b/source/blenderplayer/CMakeLists.txt
+@@ -213,6 +213,26 @@ if(WITH_PYTHON_MODULE)
+     )
+   endif()
+ 
++elseif(ANDROID)
++  # NativeActivity loads lib<android.app.lib_name>.so. The glue defines ANativeActivity_onCreate
++  # and runs android_main() (ge_player) on its own thread.
++  set(_android_glue ${ANDROID_NDK}/sources/android/native_app_glue/android_native_app_glue.c)
++  add_library(blenderplayer SHARED ${SRC} ${_android_glue})
++  # Everything else is built with hidden visibility: export the entry point and keep it alive
++  # through --gc-sections.
++  set_source_files_properties(${_android_glue} PROPERTIES COMPILE_OPTIONS "-fvisibility=default")
++  target_link_options(blenderplayer PRIVATE "-Wl,-u,ANativeActivity_onCreate")
++  set_target_properties(
++    blenderplayer
++    PROPERTIES
++      OUTPUT_NAME upbgeplayer
++      LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
++  )
++  list(APPEND LIB
++    android
++    log
++  )
++  unset(_android_glue)
+ else()
+   add_executable(blenderplayer ${EXETYPE} ${SRC})
+ endif()
+diff --git a/source/gameengine/GamePlayer/CMakeLists.txt b/source/gameengine/GamePlayer/CMakeLists.txt
+index c52e9b0b..f94cc676 100644
+--- a/source/gameengine/GamePlayer/CMakeLists.txt
++++ b/source/gameengine/GamePlayer/CMakeLists.txt
+@@ -161,6 +161,29 @@ if(WITH_VULKAN_BACKEND)
+   add_definitions(-DWITH_VULKAN_BACKEND)
+ endif()
+ 
++if(ANDROID)
++  # GHOST backend and NativeActivity entry point. android_main() is reached from
++  # android_native_app_glue, which source/blenderplayer compiles into the player .so.
++  list(APPEND INC
++    ../../../intern/ghost/intern
++  )
++  list(APPEND INC_SYS
++    ${ANDROID_NDK}/sources/android/native_app_glue
++  )
++  list(APPEND SRC
++    android/GPG_SystemAndroid.cpp
++    android/GPG_WindowAndroid.cpp
++    android/GPG_android_main.cpp
++
++    android/GPG_SystemAndroid.h
++    android/GPG_WindowAndroid.h
++  )
++  list(APPEND LIB
++    android
++    log
++  )
++endif()
++
+ blender_add_lib_nolist(ge_player "${SRC}" "${INC}" "${INC_SYS}" "${LIB}")
+ 
+ # RNA_prototypes.h
+diff --git a/source/gameengine/GamePlayer/GPG_ghost.cpp b/source/gameengine/GamePlayer/GPG_ghost.cpp
+index faa5e71f..505ceb00 100644
+--- a/source/gameengine/GamePlayer/GPG_ghost.cpp
++++ b/source/gameengine/GamePlayer/GPG_ghost.cpp
+@@ -115,6 +115,9 @@
+ #include "FN_init.hh"
+ #include "GHOST_ISystem.hh"
+ #include "GHOST_ISystemPaths.hh"
++#ifdef __ANDROID__
++#  include "android/GPG_SystemAndroid.h"
++#endif
+ #include "GPU_context.hh"
+ #include "GPU_init_exit.hh"
+ #include "GPU_material.hh"
+@@ -761,6 +764,10 @@ static int GetShadingTypeRuntime(blender::bContext *C)
+   return v3d->shading.type;
+ }
+ 
++#ifdef __ANDROID__
++/* Android enters through android_main() (android/GPG_android_main.cpp). */
++int GPG_main(int argc, char **argv)
++#else
+ int main(int argc,
+ #ifdef WIN32
+          char **argv_c
+@@ -768,6 +775,7 @@ int main(int argc,
+          char **argv
+ #endif
+ )
++#endif
+ {
+   int i;
+   int argc_py_clamped = argc; /* use this so python args can be added after ' - ' */
+@@ -1359,7 +1367,11 @@ int main(int argc,
+     WM_init_gpu_backend();
+ 
+     // Create the system
++#ifdef __ANDROID__
++    if (GPG_SystemAndroid::create() == GHOST_kSuccess) {
++#else
+     if (GHOST_ISystem::createSystem(true, false) == GHOST_kSuccess) {
++#endif
+       system = GHOST_ISystem::getSystem();
+       GPU_backend_ghost_system_set(system);
+       WM_set_g_system_blenderplayer(system);
+diff --git a/source/gameengine/GamePlayer/android/GPG_SystemAndroid.cpp b/source/gameengine/GamePlayer/android/GPG_SystemAndroid.cpp
+new file mode 100644
+index 00000000..65e0f7b4
+--- /dev/null
++++ b/source/gameengine/GamePlayer/android/GPG_SystemAndroid.cpp
+@@ -0,0 +1,543 @@
++/* SPDX-FileCopyrightText: 2026 UPBGE Authors
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later */
++
++/** \file GPG_SystemAndroid.cpp
++ *  \ingroup player
++ */
++
++#include "GPG_SystemAndroid.h"
++#include "GPG_WindowAndroid.h"
++
++#include "GHOST_EventButton.hh"
++#include "GHOST_EventCursor.hh"
++#include "GHOST_EventKey.hh"
++#include "GHOST_TimerManager.hh"
++#include "GHOST_WindowManager.hh"
++
++#include <android/input.h>
++#include <android/keycodes.h>
++#include <android/looper.h>
++#include <android/native_window.h>
++#include <android_native_app_glue.h>
++
++#include <ctime>
++#include <memory>
++
++/* Last: on Android it defines `Window` as `void *`. */
++#include "GHOST_ContextVK.hh"
++
++static android_app *g_android_app = nullptr;
++
++static uint64_t monotonic_ms()
++{
++  timespec ts;
++  clock_gettime(CLOCK_MONOTONIC, &ts);
++  return uint64_t(ts.tv_sec) * 1000u + uint64_t(ts.tv_nsec) / 1000000u;
++}
++
++void GPG_SystemAndroid::setAndroidApp(android_app *app)
++{
++  g_android_app = app;
++}
++
++android_app *GPG_SystemAndroid::getAndroidApp()
++{
++  return g_android_app;
++}
++
++GHOST_TSuccess GPG_SystemAndroid::create()
++{
++  if (system_ != nullptr || g_android_app == nullptr) {
++    return GHOST_kFailure;
++  }
++  GPG_SystemAndroid *system = new GPG_SystemAndroid(g_android_app);
++  if (system->init() == GHOST_kFailure) {
++    delete system;
++    return GHOST_kFailure;
++  }
++  system_ = system;
++  system_backend_id_ = "ANDROID";
++  return GHOST_kSuccess;
++}
++
++GPG_SystemAndroid::GPG_SystemAndroid(android_app *app) : app_(app), start_ms_(monotonic_ms())
++{
++  app_->userData = this;
++  app_->onAppCmd = &GPG_SystemAndroid::onAppCmd;
++  app_->onInputEvent = &GPG_SystemAndroid::onInputEvent;
++}
++
++GPG_SystemAndroid::~GPG_SystemAndroid()
++{
++  /* android_main() keeps draining the looper after the game ends; the callbacks must not see
++   * a dead system. */
++  app_->onAppCmd = nullptr;
++  app_->onInputEvent = nullptr;
++  app_->userData = nullptr;
++}
++
++void GPG_SystemAndroid::windowDestroyed(GPG_WindowAndroid *window)
++{
++  if (window_ == window) {
++    window_ = nullptr;
++  }
++}
++
++/* -------------------------------------------------------------------- */
++/** \name Events
++ * \{ */
++
++bool GPG_SystemAndroid::processEvents(bool waitForEvent)
++{
++  bool any_processed = false;
++
++  int timeout_ms = 0;
++  if (waitForEvent) {
++    const uint64_t next = timer_manager_->nextFireTime();
++    if (next == GHOST_kFireTimeNever) {
++      timeout_ms = -1;
++    }
++    else {
++      const uint64_t now = getMilliSeconds();
++      timeout_ms = (next > now) ? int(next - now) : 0;
++    }
++  }
++
++  /* Drain everything queued now; only the first poll may block. The glue dispatches through
++   * android_poll_source::process, which ends in onAppCmd()/onInputEvent(). */
++  for (;;) {
++    int events;
++    android_poll_source *source = nullptr;
++    const int id = ALooper_pollOnce(timeout_ms, nullptr, &events, (void **)&source);
++    if (id == ALOOPER_POLL_TIMEOUT || id == ALOOPER_POLL_ERROR || id == ALOOPER_POLL_WAKE) {
++      break;
++    }
++    if (id >= 0 && source != nullptr) {
++      source->process(app_, source);
++      any_processed = true;
++    }
++    timeout_ms = 0;
++  }
++
++  if (timer_manager_->fireTimers(getMilliSeconds())) {
++    any_processed = true;
++  }
++  return any_processed;
++}
++
++void GPG_SystemAndroid::onAppCmd(android_app *app, int32_t cmd)
++{
++  GPG_SystemAndroid *system = static_cast<GPG_SystemAndroid *>(app->userData);
++  if (system == nullptr) {
++    return;
++  }
++  GPG_WindowAndroid *window = system->window_;
++
++  switch (cmd) {
++    case APP_CMD_TERM_WINDOW:
++      /* The glue blocks the UI thread until this returns, then lets the surface die. Stop
++       * presenting before that and end the game (lifecycle v1). */
++      if (window) {
++        window->markLost();
++      }
++      system->pushEvent(std::make_unique<GHOST_Event>(
++          system->getMilliSeconds(), GHOST_kEventQuitRequest, window));
++      break;
++    case APP_CMD_DESTROY:
++      system->pushEvent(std::make_unique<GHOST_Event>(
++          system->getMilliSeconds(), GHOST_kEventQuitRequest, window));
++      break;
++    case APP_CMD_WINDOW_RESIZED:
++    case APP_CMD_CONFIG_CHANGED:
++    case APP_CMD_CONTENT_RECT_CHANGED:
++      if (window && window->updateSize()) {
++        system->pushEvent(std::make_unique<GHOST_Event>(
++            system->getMilliSeconds(), GHOST_kEventWindowSize, window));
++      }
++      break;
++    case APP_CMD_GAINED_FOCUS:
++      if (window) {
++        system->pushEvent(std::make_unique<GHOST_Event>(
++            system->getMilliSeconds(), GHOST_kEventWindowActivate, window));
++      }
++      break;
++    case APP_CMD_LOST_FOCUS:
++      if (window) {
++        system->pushEvent(std::make_unique<GHOST_Event>(
++            system->getMilliSeconds(), GHOST_kEventWindowDeactivate, window));
++      }
++      break;
++    default:
++      break;
++  }
++}
++
++int32_t GPG_SystemAndroid::onInputEvent(android_app *app, AInputEvent *event)
++{
++  GPG_SystemAndroid *system = static_cast<GPG_SystemAndroid *>(app->userData);
++  if (system == nullptr || system->window_ == nullptr) {
++    return 0;
++  }
++  switch (AInputEvent_getType(event)) {
++    case AINPUT_EVENT_TYPE_MOTION:
++      return system->handleMotion(event);
++    case AINPUT_EVENT_TYPE_KEY:
++      return system->handleKey(event);
++    default:
++      return 0;
++  }
++}
++
++void GPG_SystemAndroid::pushCursor(int32_t x, int32_t y)
++{
++  if (x == cursor_x_ && y == cursor_y_) {
++    return;
++  }
++  cursor_x_ = x;
++  cursor_y_ = y;
++  pushEvent(std::make_unique<GHOST_EventCursor>(
++      getMilliSeconds(), GHOST_kEventCursorMove, window_, x, y, GHOST_TABLET_DATA_NONE));
++}
++
++void GPG_SystemAndroid::pushButton(bool down)
++{
++  if (down == left_down_) {
++    return;
++  }
++  left_down_ = down;
++  pushEvent(std::make_unique<GHOST_EventButton>(getMilliSeconds(),
++                                                down ? GHOST_kEventButtonDown :
++                                                       GHOST_kEventButtonUp,
++                                                window_,
++                                                GHOST_kButtonMaskLeft,
++                                                GHOST_TABLET_DATA_NONE));
++}
++
++int32_t GPG_SystemAndroid::handleMotion(const AInputEvent *event)
++{
++  /* v1: the first finger is the mouse (left button). Further fingers are ignored. Only the
++   * newest sample is used: the engine reads input once per frame, historical samples would
++   * only add events. */
++  const int32_t action = AMotionEvent_getAction(event);
++  const int32_t masked = action & AMOTION_EVENT_ACTION_MASK;
++  const size_t action_index = size_t((action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >>
++                                     AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT);
++
++  switch (masked) {
++    case AMOTION_EVENT_ACTION_DOWN:
++      touch_id_ = AMotionEvent_getPointerId(event, 0);
++      pushCursor(int32_t(AMotionEvent_getX(event, 0)), int32_t(AMotionEvent_getY(event, 0)));
++      pushButton(true);
++      return 1;
++    case AMOTION_EVENT_ACTION_MOVE:
++    case AMOTION_EVENT_ACTION_HOVER_MOVE: {
++      const size_t count = AMotionEvent_getPointerCount(event);
++      for (size_t i = 0; i < count; i++) {
++        if (touch_id_ < 0 || AMotionEvent_getPointerId(event, i) == touch_id_) {
++          pushCursor(int32_t(AMotionEvent_getX(event, i)), int32_t(AMotionEvent_getY(event, i)));
++          break;
++        }
++      }
++      return 1;
++    }
++    case AMOTION_EVENT_ACTION_POINTER_UP:
++      if (AMotionEvent_getPointerId(event, action_index) != touch_id_) {
++        return 1;
++      }
++      [[fallthrough]];
++    case AMOTION_EVENT_ACTION_UP:
++    case AMOTION_EVENT_ACTION_CANCEL:
++      if (masked != AMOTION_EVENT_ACTION_CANCEL) {
++        pushCursor(int32_t(AMotionEvent_getX(event, action_index)),
++                   int32_t(AMotionEvent_getY(event, action_index)));
++      }
++      pushButton(false);
++      touch_id_ = -1;
++      return 1;
++    default:
++      return 0;
++  }
++}
++
++static GHOST_TKey convert_key(int32_t code)
++{
++  if (code >= AKEYCODE_A && code <= AKEYCODE_Z) {
++    return GHOST_TKey(GHOST_kKeyA + (code - AKEYCODE_A));
++  }
++  if (code >= AKEYCODE_0 && code <= AKEYCODE_9) {
++    return GHOST_TKey(GHOST_kKey0 + (code - AKEYCODE_0));
++  }
++  if (code >= AKEYCODE_F1 && code <= AKEYCODE_F12) {
++    return GHOST_TKey(GHOST_kKeyF1 + (code - AKEYCODE_F1));
++  }
++  if (code >= AKEYCODE_NUMPAD_0 && code <= AKEYCODE_NUMPAD_9) {
++    return GHOST_TKey(GHOST_kKeyNumpad0 + (code - AKEYCODE_NUMPAD_0));
++  }
++  switch (code) {
++    /* Back is the game's exit key (Esc by default). */
++    case AKEYCODE_BACK:
++    case AKEYCODE_ESCAPE:
++      return GHOST_kKeyEsc;
++    case AKEYCODE_ENTER:
++    case AKEYCODE_DPAD_CENTER:
++      return GHOST_kKeyEnter;
++    case AKEYCODE_SPACE:
++      return GHOST_kKeySpace;
++    case AKEYCODE_DEL:
++      return GHOST_kKeyBackSpace;
++    case AKEYCODE_FORWARD_DEL:
++      return GHOST_kKeyDelete;
++    case AKEYCODE_TAB:
++      return GHOST_kKeyTab;
++    case AKEYCODE_DPAD_UP:
++      return GHOST_kKeyUpArrow;
++    case AKEYCODE_DPAD_DOWN:
++      return GHOST_kKeyDownArrow;
++    case AKEYCODE_DPAD_LEFT:
++      return GHOST_kKeyLeftArrow;
++    case AKEYCODE_DPAD_RIGHT:
++      return GHOST_kKeyRightArrow;
++    case AKEYCODE_SHIFT_LEFT:
++      return GHOST_kKeyLeftShift;
++    case AKEYCODE_SHIFT_RIGHT:
++      return GHOST_kKeyRightShift;
++    case AKEYCODE_CTRL_LEFT:
++      return GHOST_kKeyLeftControl;
++    case AKEYCODE_CTRL_RIGHT:
++      return GHOST_kKeyRightControl;
++    case AKEYCODE_ALT_LEFT:
++      return GHOST_kKeyLeftAlt;
++    case AKEYCODE_ALT_RIGHT:
++      return GHOST_kKeyRightAlt;
++    case AKEYCODE_CAPS_LOCK:
++      return GHOST_kKeyCapsLock;
++    case AKEYCODE_MOVE_HOME:
++      return GHOST_kKeyHome;
++    case AKEYCODE_MOVE_END:
++      return GHOST_kKeyEnd;
++    case AKEYCODE_PAGE_UP:
++      return GHOST_kKeyUpPage;
++    case AKEYCODE_PAGE_DOWN:
++      return GHOST_kKeyDownPage;
++    case AKEYCODE_INSERT:
++      return GHOST_kKeyInsert;
++    case AKEYCODE_MINUS:
++      return GHOST_kKeyMinus;
++    case AKEYCODE_EQUALS:
++      return GHOST_kKeyEqual;
++    case AKEYCODE_COMMA:
++      return GHOST_kKeyComma;
++    case AKEYCODE_PERIOD:
++      return GHOST_kKeyPeriod;
++    case AKEYCODE_SLASH:
++      return GHOST_kKeySlash;
++    case AKEYCODE_SEMICOLON:
++      return GHOST_kKeySemicolon;
++    case AKEYCODE_APOSTROPHE:
++      return GHOST_kKeyQuote;
++    case AKEYCODE_LEFT_BRACKET:
++      return GHOST_kKeyLeftBracket;
++    case AKEYCODE_RIGHT_BRACKET:
++      return GHOST_kKeyRightBracket;
++    case AKEYCODE_BACKSLASH:
++      return GHOST_kKeyBackslash;
++    case AKEYCODE_GRAVE:
++      return GHOST_kKeyAccentGrave;
++    case AKEYCODE_NUMPAD_DOT:
++      return GHOST_kKeyNumpadPeriod;
++    case AKEYCODE_NUMPAD_ENTER:
++      return GHOST_kKeyNumpadEnter;
++    case AKEYCODE_NUMPAD_ADD:
++      return GHOST_kKeyNumpadPlus;
++    case AKEYCODE_NUMPAD_SUBTRACT:
++      return GHOST_kKeyNumpadMinus;
++    case AKEYCODE_NUMPAD_MULTIPLY:
++      return GHOST_kKeyNumpadAsterisk;
++    case AKEYCODE_NUMPAD_DIVIDE:
++      return GHOST_kKeyNumpadSlash;
++    default:
++      return GHOST_kKeyUnknown;
++  }
++}
++
++int32_t GPG_SystemAndroid::handleKey(const AInputEvent *event)
++{
++  const int32_t action = AKeyEvent_getAction(event);
++  if (action != AKEY_EVENT_ACTION_DOWN && action != AKEY_EVENT_ACTION_UP) {
++    return 0;
++  }
++  const GHOST_TKey key = convert_key(AKeyEvent_getKeyCode(event));
++  if (key == GHOST_kKeyUnknown) {
++    /* Not ours (volume, power, media...): let Android handle it. */
++    return 0;
++  }
++  const bool down = (action == AKEY_EVENT_ACTION_DOWN);
++  switch (key) {
++    case GHOST_kKeyLeftShift:
++      modifiers_.set(GHOST_kModifierKeyLeftShift, down);
++      break;
++    case GHOST_kKeyRightShift:
++      modifiers_.set(GHOST_kModifierKeyRightShift, down);
++      break;
++    case GHOST_kKeyLeftControl:
++      modifiers_.set(GHOST_kModifierKeyLeftControl, down);
++      break;
++    case GHOST_kKeyRightControl:
++      modifiers_.set(GHOST_kModifierKeyRightControl, down);
++      break;
++    case GHOST_kKeyLeftAlt:
++      modifiers_.set(GHOST_kModifierKeyLeftAlt, down);
++      break;
++    case GHOST_kKeyRightAlt:
++      modifiers_.set(GHOST_kModifierKeyRightAlt, down);
++      break;
++    default:
++      break;
++  }
++  /* No text: the NDK key event carries no Unicode (that needs KeyCharacterMap over JNI). */
++  pushEvent(std::make_unique<GHOST_EventKey>(getMilliSeconds(),
++                                             down ? GHOST_kEventKeyDown : GHOST_kEventKeyUp,
++                                             window_,
++                                             key,
++                                             AKeyEvent_getRepeatCount(event) > 0));
++  return 1;
++}
++
++/** \} */
++
++/* -------------------------------------------------------------------- */
++/** \name State queries
++ * \{ */
++
++GHOST_TSuccess GPG_SystemAndroid::getModifierKeys(GHOST_ModifierKeys &keys) const
++{
++  keys = modifiers_;
++  return GHOST_kSuccess;
++}
++
++GHOST_TSuccess GPG_SystemAndroid::getButtons(GHOST_Buttons &buttons) const
++{
++  buttons.set(GHOST_kButtonMaskLeft, left_down_);
++  return GHOST_kSuccess;
++}
++
++GHOST_TCapabilityFlag GPG_SystemAndroid::getCapabilities() const
++{
++  /* Back buffer and front buffer are the same texture in the Vulkan backend. Nothing else:
++   * no window placement, cursor warp, clipboard, IME or decorations. */
++  return GHOST_kCapabilityGPUReadFrontBuffer;
++}
++
++uint64_t GPG_SystemAndroid::getMilliSeconds() const
++{
++  return monotonic_ms() - start_ms_;
++}
++
++GHOST_TSuccess GPG_SystemAndroid::getCursorPosition(int32_t &x, int32_t &y) const
++{
++  x = cursor_x_;
++  y = cursor_y_;
++  return GHOST_kSuccess;
++}
++
++GHOST_TSuccess GPG_SystemAndroid::setCursorPosition(int32_t x, int32_t y)
++{
++  /* No pointer to warp. Keep the value so get/set pairs (mouse look) stay consistent. */
++  cursor_x_ = x;
++  cursor_y_ = y;
++  return GHOST_kSuccess;
++}
++
++void GPG_SystemAndroid::getMainDisplayDimensions(uint32_t &width, uint32_t &height) const
++{
++  if (window_) {
++    GHOST_Rect bounds;
++    window_->getClientBounds(bounds);
++    width = uint32_t(bounds.getWidth());
++    height = uint32_t(bounds.getHeight());
++  }
++  else if (app_->window) {
++    width = uint32_t(ANativeWindow_getWidth(app_->window));
++    height = uint32_t(ANativeWindow_getHeight(app_->window));
++  }
++  else {
++    width = height = 0;
++  }
++}
++
++void GPG_SystemAndroid::getAllDisplayDimensions(uint32_t &width, uint32_t &height) const
++{
++  getMainDisplayDimensions(width, height);
++}
++
++/** \} */
++
++/* -------------------------------------------------------------------- */
++/** \name Windows and contexts
++ * \{ */
++
++GHOST_IContext *GPG_SystemAndroid::createOffscreenContext(GHOST_GPUSettings gpu_settings)
++{
++  if (gpu_settings.context_type != GHOST_kDrawingContextTypeVulkan) {
++    return nullptr;
++  }
++  const GHOST_ContextParams context_params_offscreen =
++      GHOST_CONTEXT_PARAMS_FROM_GPU_SETTINGS_OFFSCREEN(gpu_settings);
++  GHOST_Context *context = new GHOST_ContextVK(context_params_offscreen,
++                                               GHOST_kVulkanPlatformHeadless,
++                                               nullptr,
++                                               nullptr,
++                                               nullptr,
++                                               nullptr,
++                                               nullptr,
++                                               1,
++                                               1,
++                                               gpu_settings.preferred_device);
++  if (context->initializeDrawingContext()) {
++    return context;
++  }
++  delete context;
++  return nullptr;
++}
++
++GHOST_TSuccess GPG_SystemAndroid::disposeContext(GHOST_IContext *context)
++{
++  delete context;
++  return GHOST_kSuccess;
++}
++
++GHOST_IWindow *GPG_SystemAndroid::createWindow(const char * /*title*/,
++                                               int32_t /*left*/,
++                                               int32_t /*top*/,
++                                               uint32_t /*width*/,
++                                               uint32_t /*height*/,
++                                               GHOST_TWindowState /*state*/,
++                                               GHOST_GPUSettings gpu_settings,
++                                               const bool /*exclusive*/,
++                                               const bool /*is_dialog*/,
++                                               const GHOST_IWindow * /*parent_window*/)
++{
++  /* One activity, one surface: position, size and state requests do not apply. */
++  if (window_ != nullptr || app_->window == nullptr) {
++    return nullptr;
++  }
++  GPG_WindowAndroid *window = new GPG_WindowAndroid(
++      this, app_->window, GHOST_kWindowStateFullScreen, gpu_settings);
++  if (!window->getValid()) {
++    delete window;
++    return nullptr;
++  }
++  window_ = window;
++  window_manager_->addWindow(window);
++  window_manager_->setActiveWindow(window);
++  pushEvent(std::make_unique<GHOST_Event>(getMilliSeconds(), GHOST_kEventWindowSize, window));
++  return window;
++}
++
++GHOST_IWindow *GPG_SystemAndroid::getWindowUnderCursor(int32_t /*x*/, int32_t /*y*/)
++{
++  return window_;
++}
++
++/** \} */
+diff --git a/source/gameengine/GamePlayer/android/GPG_SystemAndroid.h b/source/gameengine/GamePlayer/android/GPG_SystemAndroid.h
+new file mode 100644
+index 00000000..9c45d9ee
+--- /dev/null
++++ b/source/gameengine/GamePlayer/android/GPG_SystemAndroid.h
+@@ -0,0 +1,103 @@
++/* SPDX-FileCopyrightText: 2026 UPBGE Authors
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later */
++
++/** \file GPG_SystemAndroid.h
++ *  \ingroup player
++ *
++ * GHOST system for the Android player (NativeActivity + android_native_app_glue).
++ *
++ * Everything runs on the glue's android_main() thread: Blender, Python, the GPU context and
++ * event polling. Exactly one window exists, the activity's ANativeWindow, always full screen.
++ *
++ * Lifecycle v1: losing the window (APP_CMD_TERM_WINDOW: home button, app switch, screen off)
++ * ends the game. The window is marked lost first so no frame touches the dying surface, then
++ * a quit request is queued and the engine leaves its loop on the next event dispatch.
++ */
++
++#pragma once
++
++#include "GHOST_ModifierKeys.hh"
++#include "GHOST_System.hh"
++
++#include <cstdint>
++
++struct android_app;
++struct AInputEvent;
++class GPG_WindowAndroid;
++
++class GPG_SystemAndroid : public GHOST_System {
++ public:
++  /** Must be called by android_main() before #create(). */
++  static void setAndroidApp(android_app *app);
++  static android_app *getAndroidApp();
++
++  /**
++   * Replaces GHOST_ISystem::createSystem() on Android: installs this backend as the GHOST
++   * system singleton. GHOST_ISystem::disposeSystem() deletes it as usual.
++   */
++  static GHOST_TSuccess create();
++
++  ~GPG_SystemAndroid() override;
++
++  bool processEvents(bool waitForEvent) override;
++  bool setConsoleWindowState(GHOST_TConsoleWindowState /*action*/) override
++  {
++    return false;
++  }
++  GHOST_TSuccess getModifierKeys(GHOST_ModifierKeys &keys) const override;
++  GHOST_TSuccess getButtons(GHOST_Buttons &buttons) const override;
++  GHOST_TCapabilityFlag getCapabilities() const override;
++  char *getClipboard(bool /*selection*/) const override
++  {
++    return nullptr;
++  }
++  void putClipboard(const char * /*buffer*/, bool /*selection*/) const override {}
++  uint64_t getMilliSeconds() const override;
++  uint8_t getNumDisplays() const override
++  {
++    return 1;
++  }
++  GHOST_TSuccess getCursorPosition(int32_t &x, int32_t &y) const override;
++  GHOST_TSuccess setCursorPosition(int32_t x, int32_t y) override;
++  void getMainDisplayDimensions(uint32_t &width, uint32_t &height) const override;
++  void getAllDisplayDimensions(uint32_t &width, uint32_t &height) const override;
++  GHOST_IContext *createOffscreenContext(GHOST_GPUSettings gpu_settings) override;
++  GHOST_TSuccess disposeContext(GHOST_IContext *context) override;
++  GHOST_IWindow *createWindow(const char *title,
++                              int32_t left,
++                              int32_t top,
++                              uint32_t width,
++                              uint32_t height,
++                              GHOST_TWindowState state,
++                              GHOST_GPUSettings gpu_settings,
++                              const bool exclusive = false,
++                              const bool is_dialog = false,
++                              const GHOST_IWindow *parent_window = nullptr) override;
++  GHOST_IWindow *getWindowUnderCursor(int32_t /*x*/, int32_t /*y*/) override;
++
++  /** Called by the window destructor, so no event is ever queued for a deleted window. */
++  void windowDestroyed(GPG_WindowAndroid *window);
++
++ private:
++  explicit GPG_SystemAndroid(android_app *app);
++
++  static void onAppCmd(android_app *app, int32_t cmd);
++  static int32_t onInputEvent(android_app *app, AInputEvent *event);
++
++  int32_t handleMotion(const AInputEvent *event);
++  int32_t handleKey(const AInputEvent *event);
++  void pushCursor(int32_t x, int32_t y);
++  void pushButton(bool down);
++
++  android_app *app_;
++  GPG_WindowAndroid *window_ = nullptr;
++  /* CLOCK_MONOTONIC at creation, in ms: GHOST times are relative to it. */
++  uint64_t start_ms_;
++  /* The single tracked touch pointer is the mouse: left button down while touching. */
++  int32_t touch_id_ = -1;
++  int32_t cursor_x_ = 0;
++  int32_t cursor_y_ = 0;
++  bool left_down_ = false;
++  GHOST_ModifierKeys modifiers_;
++};
+diff --git a/source/gameengine/GamePlayer/android/GPG_WindowAndroid.cpp b/source/gameengine/GamePlayer/android/GPG_WindowAndroid.cpp
+new file mode 100644
+index 00000000..c9b6f411
+--- /dev/null
++++ b/source/gameengine/GamePlayer/android/GPG_WindowAndroid.cpp
+@@ -0,0 +1,111 @@
++/* SPDX-FileCopyrightText: 2026 UPBGE Authors
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later */
++
++/** \file GPG_WindowAndroid.cpp
++ *  \ingroup player
++ */
++
++#include "GPG_WindowAndroid.h"
++#include "GPG_SystemAndroid.h"
++
++#include <android/native_window.h>
++
++/* Last: on Android it defines `Window` as `void *` (the X11 handle slot carries the
++ * ANativeWindow). */
++#include "GHOST_ContextVK.hh"
++
++GPG_WindowAndroid::GPG_WindowAndroid(GPG_SystemAndroid *system,
++                                     ANativeWindow *native_window,
++                                     GHOST_TWindowState state,
++                                     const GHOST_GPUSettings &gpu_settings)
++    : GHOST_Window(uint32_t(ANativeWindow_getWidth(native_window)),
++                   uint32_t(ANativeWindow_getHeight(native_window)),
++                   state,
++                   GHOST_ContextParams GHOST_CONTEXT_PARAMS_FROM_GPU_SETTINGS(gpu_settings),
++                   false),
++      system_(system),
++      native_window_(native_window),
++      preferred_device_(gpu_settings.preferred_device),
++      width_(ANativeWindow_getWidth(native_window)),
++      height_(ANativeWindow_getHeight(native_window))
++{
++  /* Our own reference: the glue drops the activity's one on APP_CMD_TERM_WINDOW, while this
++   * object (and the Vulkan surface) may live a couple of frames longer. */
++  ANativeWindow_acquire(native_window_);
++  valid_ = (setDrawingContextType(gpu_settings.context_type) == GHOST_kSuccess);
++}
++
++GPG_WindowAndroid::~GPG_WindowAndroid()
++{
++  /* Destroy swapchain and surface while the window reference is still held. */
++  setDrawingContextType(GHOST_kDrawingContextTypeNone);
++  ANativeWindow_release(native_window_);
++  system_->windowDestroyed(this);
++}
++
++bool GPG_WindowAndroid::updateSize()
++{
++  if (lost_) {
++    return false;
++  }
++  const int32_t w = ANativeWindow_getWidth(native_window_);
++  const int32_t h = ANativeWindow_getHeight(native_window_);
++  /* Negative values are errors from a dying window: keep the last good size. */
++  if (w <= 0 || h <= 0 || (w == width_ && h == height_)) {
++    return false;
++  }
++  width_ = w;
++  height_ = h;
++  return true;
++}
++
++bool GPG_WindowAndroid::getValid() const
++{
++  /* GHOST_Window falls back to GHOST_ContextNone, so its own check never fails. */
++  return valid_;
++}
++
++void GPG_WindowAndroid::getWindowBounds(GHOST_Rect &bounds) const
++{
++  getClientBounds(bounds);
++}
++
++void GPG_WindowAndroid::getClientBounds(GHOST_Rect &bounds) const
++{
++  bounds.set(0, 0, width_, height_);
++}
++
++GHOST_TSuccess GPG_WindowAndroid::swapBufferAcquire()
++{
++  return lost_ ? GHOST_kSuccess : GHOST_Window::swapBufferAcquire();
++}
++
++GHOST_TSuccess GPG_WindowAndroid::swapBufferRelease()
++{
++  return lost_ ? GHOST_kSuccess : GHOST_Window::swapBufferRelease();
++}
++
++GHOST_Context *GPG_WindowAndroid::newDrawingContext(GHOST_TDrawingContextType type)
++{
++  if (type != GHOST_kDrawingContextTypeVulkan) {
++    /* Android has no desktop OpenGL; GLES is not a Blender GPU backend. */
++    return nullptr;
++  }
++  GHOST_ContextVK *context = new GHOST_ContextVK(want_context_params_,
++                                                 GHOST_kVulkanPlatformAndroid,
++                                                 static_cast<void *>(native_window_),
++                                                 nullptr,
++                                                 nullptr,
++                                                 nullptr,
++                                                 nullptr,
++                                                 1,
++                                                 1,
++                                                 preferred_device_,
++                                                 &hdr_info_);
++  if (context->initializeDrawingContext()) {
++    return context;
++  }
++  delete context;
++  return nullptr;
++}
+diff --git a/source/gameengine/GamePlayer/android/GPG_WindowAndroid.h b/source/gameengine/GamePlayer/android/GPG_WindowAndroid.h
+new file mode 100644
+index 00000000..30f5b0a4
+--- /dev/null
++++ b/source/gameengine/GamePlayer/android/GPG_WindowAndroid.h
+@@ -0,0 +1,137 @@
++/* SPDX-FileCopyrightText: 2026 UPBGE Authors
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later */
++
++/** \file GPG_WindowAndroid.h
++ *  \ingroup player
++ *
++ * The activity's ANativeWindow as a GHOST window. Size is owned by Android (always full
++ * screen); it is cached and refreshed only on the glue's resize/config commands, so per-frame
++ * size queries are a load instead of a call into libnativewindow.
++ */
++
++#pragma once
++
++#include "GHOST_Window.hh"
++
++struct ANativeWindow;
++class GPG_SystemAndroid;
++
++class GPG_WindowAndroid : public GHOST_Window {
++ public:
++  GPG_WindowAndroid(GPG_SystemAndroid *system,
++                    ANativeWindow *native_window,
++                    GHOST_TWindowState state,
++                    const GHOST_GPUSettings &gpu_settings);
++  ~GPG_WindowAndroid() override;
++
++  /** The surface is going away: from now on no swap touches it. */
++  void markLost()
++  {
++    lost_ = true;
++  }
++  bool isLost() const
++  {
++    return lost_;
++  }
++  /** Re-read the native window size. Returns true when it changed. */
++  bool updateSize();
++
++  bool getValid() const override;
++  void setTitle(const char * /*title*/) override {}
++  std::string getTitle() const override
++  {
++    return "UPBGE";
++  }
++  void setPath(const char * /*filepath*/) override {}
++  void getWindowBounds(GHOST_Rect &bounds) const override;
++  void getClientBounds(GHOST_Rect &bounds) const override;
++  GHOST_TSuccess setClientWidth(uint32_t /*width*/) override
++  {
++    return GHOST_kFailure;
++  }
++  GHOST_TSuccess setClientHeight(uint32_t /*height*/) override
++  {
++    return GHOST_kFailure;
++  }
++  GHOST_TSuccess setClientSize(uint32_t /*width*/, uint32_t /*height*/) override
++  {
++    return GHOST_kFailure;
++  }
++  void screenToClient(int32_t inX, int32_t inY, int32_t &outX, int32_t &outY) const override
++  {
++    outX = inX;
++    outY = inY;
++  }
++  void clientToScreen(int32_t inX, int32_t inY, int32_t &outX, int32_t &outY) const override
++  {
++    outX = inX;
++    outY = inY;
++  }
++  GHOST_TWindowState getState() const override
++  {
++    return GHOST_kWindowStateFullScreen;
++  }
++  GHOST_TSuccess setState(GHOST_TWindowState /*state*/) override
++  {
++    return GHOST_kSuccess;
++  }
++  GHOST_TSuccess setOrder(GHOST_TWindowOrder /*order*/) override
++  {
++    return GHOST_kSuccess;
++  }
++  GHOST_TSuccess invalidate() override
++  {
++    return GHOST_kSuccess;
++  }
++  GHOST_TSuccess beginFullScreen() const override
++  {
++    return GHOST_kSuccess;
++  }
++  GHOST_TSuccess endFullScreen() const override
++  {
++    return GHOST_kSuccess;
++  }
++  GHOST_TSuccess hasCursorShape(GHOST_TStandardCursor /*cursor_shape*/) override
++  {
++    return GHOST_kFailure;
++  }
++
++  /* A lost surface must not be acquired nor presented; the frames rendered until the quit
++   * request is handled only touch the back buffer. */
++  GHOST_TSuccess swapBufferAcquire() override;
++  GHOST_TSuccess swapBufferRelease() override;
++
++ protected:
++  GHOST_TSuccess setWindowCursorGrab(GHOST_TGrabCursorMode /*mode*/) override
++  {
++    return GHOST_kSuccess;
++  }
++  GHOST_TSuccess setWindowCursorShape(GHOST_TStandardCursor /*shape*/) override
++  {
++    return GHOST_kSuccess;
++  }
++  GHOST_TSuccess setWindowCustomCursorShape(const uint8_t * /*bitmap*/,
++                                            const uint8_t * /*mask*/,
++                                            const int /*size*/[2],
++                                            const int /*hot_spot*/[2],
++                                            bool /*can_invert_color*/) override
++  {
++    return GHOST_kSuccess;
++  }
++  GHOST_TSuccess setWindowCursorVisibility(bool /*visible*/) override
++  {
++    return GHOST_kSuccess;
++  }
++
++ private:
++  GHOST_Context *newDrawingContext(GHOST_TDrawingContextType type) override;
++
++  GPG_SystemAndroid *system_;
++  ANativeWindow *native_window_;
++  GHOST_GPUDevice preferred_device_;
++  int32_t width_;
++  int32_t height_;
++  bool valid_ = false;
++  bool lost_ = false;
++};
+diff --git a/source/gameengine/GamePlayer/android/GPG_android_main.cpp b/source/gameengine/GamePlayer/android/GPG_android_main.cpp
+new file mode 100644
+index 00000000..6da20c4b
+--- /dev/null
++++ b/source/gameengine/GamePlayer/android/GPG_android_main.cpp
+@@ -0,0 +1,353 @@
++/* SPDX-FileCopyrightText: 2026 UPBGE Authors
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later */
++
++/** \file GPG_android_main.cpp
++ *  \ingroup player
++ *
++ * NativeActivity entry point (android_native_app_glue calls android_main() on its own thread).
++ *
++ * Blender needs real files: the resources tree (scripts, datafiles, Python stdlib) and the
++ * game are copied from the APK assets into internal storage on first launch, and again only
++ * when the packaged manifest changes. Then GPG_main() runs the regular player with
++ * `-w <game.blend>`.
++ */
++
++#include "GPG_SystemAndroid.h"
++
++#include <android/asset_manager.h>
++#include <android/log.h>
++#include <android/looper.h>
++#include <android/native_activity.h>
++#include <android_native_app_glue.h>
++
++#include <cctype>
++#include <cerrno>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <pthread.h>
++#include <string>
++#include <sys/stat.h>
++#include <unistd.h>
++#include <vector>
++
++/* GPG_ghost.cpp: main() of the desktop player, renamed on Android. */
++extern int GPG_main(int argc, char **argv);
++
++static const char *LOG_TAG = "UPBGE";
++/* Packaged by scripts/package_player.sh: a build stamp line, then one asset path per line. */
++static const char *MANIFEST_ASSET = "upbge/files.txt";
++
++#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
++#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
++
++/* -------------------------------------------------------------------- */
++/** \name stdout/stderr to logcat
++ *
++ * Android discards fd 1/2. Every CM_Message, printf and Python print would be lost. One
++ * blocked reader thread costs nothing while idle.
++ * \{ */
++
++static int g_log_pipe[2] = {-1, -1};
++static pthread_t g_log_thread;
++static bool g_log_thread_running = false;
++
++static void *log_thread_main(void * /*arg*/)
++{
++  char buf[1024];
++  size_t len = 0;
++  for (;;) {
++    const ssize_t n = read(g_log_pipe[0], buf + len, sizeof(buf) - 1 - len);
++    if (n <= 0) {
++      break;
++    }
++    len += size_t(n);
++    char *start = buf;
++    char *newline;
++    while ((newline = static_cast<char *>(memchr(start, '\n', len - size_t(start - buf))))) {
++      *newline = '\0';
++      __android_log_write(ANDROID_LOG_INFO, LOG_TAG, start);
++      start = newline + 1;
++    }
++    len -= size_t(start - buf);
++    if (len == sizeof(buf) - 1) {
++      /* A line longer than the buffer: emit what we have. */
++      buf[len] = '\0';
++      __android_log_write(ANDROID_LOG_INFO, LOG_TAG, buf);
++      len = 0;
++    }
++    else if (start != buf) {
++      memmove(buf, start, len);
++    }
++  }
++  return nullptr;
++}
++
++static void redirect_stdio_to_logcat()
++{
++  setvbuf(stdout, nullptr, _IOLBF, 0);
++  setvbuf(stderr, nullptr, _IONBF, 0);
++  if (pipe(g_log_pipe) != 0) {
++    return;
++  }
++  dup2(g_log_pipe[1], STDOUT_FILENO);
++  dup2(g_log_pipe[1], STDERR_FILENO);
++  g_log_thread_running = (pthread_create(&g_log_thread, nullptr, log_thread_main, nullptr) == 0);
++}
++
++/* The reader runs behind the writers: drain it, or the last lines (often the error that
++ * ended the game) die with the process. Closing every write end makes read() return 0. */
++static void flush_stdio_to_logcat()
++{
++  fflush(stdout);
++  fflush(stderr);
++  if (!g_log_thread_running) {
++    return;
++  }
++  close(STDOUT_FILENO);
++  close(STDERR_FILENO);
++  close(g_log_pipe[1]);
++  pthread_join(g_log_thread, nullptr);
++  g_log_thread_running = false;
++}
++
++/** \} */
++
++/* -------------------------------------------------------------------- */
++/** \name Looper helpers
++ * \{ */
++
++/* Run pending glue commands without blocking. Lifecycle commands block the UI thread until
++ * this thread handles them, so long work (asset copy) calls this between steps. */
++static void drain_looper(android_app *app, int timeout_ms)
++{
++  for (;;) {
++    int events;
++    android_poll_source *source = nullptr;
++    const int id = ALooper_pollOnce(timeout_ms, nullptr, &events, (void **)&source);
++    if (id == ALOOPER_POLL_TIMEOUT || id == ALOOPER_POLL_ERROR || id == ALOOPER_POLL_WAKE) {
++      return;
++    }
++    if (id >= 0 && source != nullptr) {
++      source->process(app, source);
++    }
++    timeout_ms = 0;
++  }
++}
++
++static bool wait_for_window(android_app *app)
++{
++  while (app->window == nullptr) {
++    if (app->destroyRequested) {
++      return false;
++    }
++    drain_looper(app, -1);
++  }
++  return !app->destroyRequested;
++}
++
++/** \} */
++
++/* -------------------------------------------------------------------- */
++/** \name Asset extraction
++ * \{ */
++
++static bool read_asset(AAssetManager *manager, const char *name, std::string &r_data)
++{
++  AAsset *asset = AAssetManager_open(manager, name, AASSET_MODE_BUFFER);
++  if (asset == nullptr) {
++    return false;
++  }
++  const off_t size = AAsset_getLength(asset);
++  r_data.resize(size_t(size));
++  const bool ok = (size == 0) || (AAsset_read(asset, r_data.data(), size_t(size)) == size);
++  AAsset_close(asset);
++  return ok;
++}
++
++static bool read_file(const std::string &path, std::string &r_data)
++{
++  FILE *file = fopen(path.c_str(), "rb");
++  if (file == nullptr) {
++    return false;
++  }
++  r_data.clear();
++  char buf[4096];
++  size_t n;
++  while ((n = fread(buf, 1, sizeof(buf), file)) > 0) {
++    r_data.append(buf, n);
++  }
++  fclose(file);
++  return true;
++}
++
++static void make_parent_dirs(const std::string &path)
++{
++  for (size_t i = 1; i < path.size(); i++) {
++    if (path[i] == '/') {
++      const std::string dir = path.substr(0, i);
++      mkdir(dir.c_str(), 0700);
++    }
++  }
++}
++
++static bool copy_asset(AAssetManager *manager,
++                       const char *name,
++                       const std::string &dst,
++                       char *buf,
++                       size_t buf_size)
++{
++  AAsset *asset = AAssetManager_open(manager, name, AASSET_MODE_STREAMING);
++  if (asset == nullptr) {
++    LOGE("missing asset: %s", name);
++    return false;
++  }
++  make_parent_dirs(dst);
++  /* Write next to the target and rename: a kill mid-copy never leaves a truncated file that
++   * a later launch would trust. */
++  const std::string tmp = dst + ".part";
++  FILE *file = fopen(tmp.c_str(), "wb");
++  bool ok = (file != nullptr);
++  int n = 0;
++  while (ok && (n = AAsset_read(asset, buf, buf_size)) > 0) {
++    ok = (fwrite(buf, 1, size_t(n), file) == size_t(n));
++  }
++  ok = ok && (n == 0);
++  if (file) {
++    ok = (fclose(file) == 0) && ok;
++  }
++  AAsset_close(asset);
++  ok = ok && (rename(tmp.c_str(), dst.c_str()) == 0);
++  if (!ok) {
++    LOGE("failed to extract %s: %s", name, strerror(errno));
++    unlink(tmp.c_str());
++  }
++  return ok;
++}
++
++static bool extract_assets(android_app *app, const std::string &root)
++{
++  AAssetManager *manager = app->activity->assetManager;
++  std::string manifest;
++  if (!read_asset(manager, MANIFEST_ASSET, manifest)) {
++    LOGE("missing asset manifest %s", MANIFEST_ASSET);
++    return false;
++  }
++  const std::string stamp_path = root + "/files.txt";
++  std::string installed;
++  if (read_file(stamp_path, installed) && installed == manifest) {
++    return true;
++  }
++
++  LOGI("extracting assets to %s", root.c_str());
++  /* Invalidate first: an interrupted extraction must be redone on the next launch. */
++  unlink(stamp_path.c_str());
++
++  const size_t buf_size = 256 * 1024;
++  char *buf = static_cast<char *>(malloc(buf_size));
++  bool ok = (buf != nullptr);
++  size_t line_begin = manifest.find('\n');
++  /* First line is the build stamp. */
++  line_begin = (line_begin == std::string::npos) ? manifest.size() : line_begin + 1;
++  while (ok && line_begin < manifest.size()) {
++    size_t line_end = manifest.find('\n', line_begin);
++    if (line_end == std::string::npos) {
++      line_end = manifest.size();
++    }
++    const std::string name = manifest.substr(line_begin, line_end - line_begin);
++    line_begin = line_end + 1;
++    if (name.empty()) {
++      continue;
++    }
++    ok = copy_asset(manager, name.c_str(), root + "/" + name, buf, buf_size);
++    drain_looper(app, 0);
++    ok = ok && !app->destroyRequested;
++  }
++  free(buf);
++
++  if (ok) {
++    FILE *file = fopen(stamp_path.c_str(), "wb");
++    ok = (file != nullptr) && (fwrite(manifest.data(), 1, manifest.size(), file) ==
++                               manifest.size());
++    if (file) {
++      ok = (fclose(file) == 0) && ok;
++    }
++  }
++  return ok;
++}
++
++/** \} */
++
++/* Optional developer flags (build_files/android/debug.sh writes them): whitespace separated
++ * player arguments in <external files>/blender_args.txt, reachable over adb without run-as. */
++static void read_extra_args(android_app *app, std::vector<std::string> &r_args)
++{
++  const char *external = app->activity->externalDataPath;
++  std::string text;
++  if (external == nullptr || !read_file(std::string(external) + "/blender_args.txt", text)) {
++    return;
++  }
++  size_t i = 0;
++  while (i < text.size()) {
++    while (i < text.size() && isspace(static_cast<unsigned char>(text[i]))) {
++      i++;
++    }
++    const size_t begin = i;
++    while (i < text.size() && !isspace(static_cast<unsigned char>(text[i]))) {
++      i++;
++    }
++    if (i > begin) {
++      r_args.push_back(text.substr(begin, i - begin));
++    }
++  }
++}
++
++void android_main(android_app *app)
++{
++  redirect_stdio_to_logcat();
++
++  int exit_code = 1;
++  if (wait_for_window(app)) {
++    const std::string root = app->activity->internalDataPath;
++    if (extract_assets(app, root) && wait_for_window(app)) {
++      const std::string resources = root + "/upbge";
++      const std::string user = root + "/user";
++      const std::string tmp = root + "/tmp";
++      mkdir(user.c_str(), 0700);
++      mkdir(tmp.c_str(), 0700);
++      setenv("HOME", root.c_str(), 1);
++      setenv("TMPDIR", tmp.c_str(), 1);
++      setenv("BLENDER_SYSTEM_RESOURCES", resources.c_str(), 1);
++      setenv("BLENDER_USER_RESOURCES", user.c_str(), 1);
++      chdir(root.c_str());
++
++      /* `-w` last: the window is always the full-screen activity surface, and the game file
++       * must be the last argument. */
++      std::vector<std::string> args = {"upbgeplayer"};
++      read_extra_args(app, args);
++      args.push_back("-w");
++      args.push_back(root + "/game.blend");
++      std::vector<char *> argv;
++      for (std::string &arg : args) {
++        LOGI("arg: %s", arg.c_str());
++        argv.push_back(arg.data());
++      }
++      argv.push_back(nullptr);
++
++      GPG_SystemAndroid::setAndroidApp(app);
++      exit_code = GPG_main(int(args.size()), argv.data());
++      GPG_SystemAndroid::setAndroidApp(nullptr);
++    }
++  }
++
++  /* Leave through the activity so Android sees a normal finish, not a crash. */
++  ANativeActivity_finish(app->activity);
++  while (!app->destroyRequested) {
++    drain_looper(app, -1);
++  }
++  flush_stdio_to_logcat();
++  /* Blender's global state cannot be initialized twice in one process, and Android may reuse
++   * this process for the next launch. End it; skip static destructors of a torn-down engine. */
++  _exit(exit_code);
++}

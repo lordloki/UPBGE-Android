@@ -110,8 +110,9 @@ make setup                # or: bash scripts/fetch_upbge.sh
 ```
 
 This clones UPBGE master into `~/upbge_src` (shallow), updates submodules, and
-applies every patch under `build_files/android/patches/` plus copies the new
-GHOST Android backend and player entrypoint wrapper into the tree.
+applies `build_files/android/patches/upbge/*.patch`: the Vulkan Android
+surface and pre-rotation (Blender-owned files, hunks marked `UPBGE - Android`)
+and the Android player backend (`source/gameengine/GamePlayer/android/`).
 
 To re-apply patches after a `git pull` inside `~/upbge_src`:
 
@@ -131,7 +132,7 @@ bash scripts/fetch_upbge.sh --reset
 make deps ARCH=arm64-v8a
 ```
 
-This builds the 36 libraries listed in `docs/DEPENDENCIES.md` into
+This builds the 37 libraries listed in `docs/DEPENDENCIES.md` into
 `~/upbge_android_build_base/lib/android_<arch>/`.
 
 Logs land in `~/upbge_android_build_base/logs/deps_<arch>.log`; on failure the
@@ -155,41 +156,52 @@ make build ARCH=arm64-v8a
 
 This:
 
-1. Builds the host code generators (`makesdna`, `makesrna`, ...) with the
-   `player-only` feature set, so the generated RNA and DNA match the target
-   binary.
-2. Configures the target build with `build_files/android/toolchain/android.toolchain.cmake`.
-3. Builds `blenderplayer` as a shared library (`libupbgeplayer.so`).
+1. Configures the same UPBGE tree for the host with the `player-only`
+   feature cache and builds only `makesdna`, `makesrna`, `datatoc` and
+   `shader_tool`, so the generated DNA/RNA/shader code matches the target.
+   This step needs what a desktop UPBGE build needs: Blender's precompiled
+   `lib/linux_x64` (`make update` in the UPBGE checkout) or the distribution
+   packages, including Python 3.13 (Tumbleweed: `python313-devel`).
+2. Configures the target build with the NDK toolchain, the same feature cache
+   and `build_files/android/cmake/upbge_android_project.cmake`, which swaps in
+   the host generators and completes the static link.
+3. Builds `blenderplayer`: on Android a shared library, `libupbgeplayer.so`.
+4. Packages and signs the APK (next section).
+
+Both configures use `WITH_STRICT_BUILD_OPTIONS`: a missing library fails the
+configure that lacks it instead of quietly disabling a feature on one side.
 
 Output: `~/upbge_android_build_base/build_android_player-only_<arch>/bin/libupbgeplayer.so`.
 
-## 7. Package the player bundle
+## 7. Package the APK
+
+`make build` already packages. After changing only assets or the game:
 
 ```bash
-make package ARCH=arm64-v8a
+make package ARCH=arm64-v8a                  # re-package the last build
+python3 build_files/android/build.py player-only --repackage --blend mygame.blend
 ```
 
-This produces:
+This produces `~/upbge_android_build_base/android_apk_stage_player-only_arm64-v8a/`:
 
-- `~/upbge_android_build_base/android_apk_stage_player-only_arm64-v8a/`
-  containing:
-  - `lib/arm64-v8a/libupbgeplayer.so`
-  - `assets/blender_runtime.zip`  (scripts + datafiles + Python stdlib)
-  - `assets/game.blend`           (placeholder, the add-on replaces it)
-  - `assets/blender_args.txt`
-  - `AndroidManifest.xml`
-  - `src/main/java/org/upbge/player/MainActivity.java`
-  - `src/main/res/values/strings.xml`
-  - `PACKAGE_README.txt`
-  - `build/upbge-player-unsigned.apk` (if `aapt2` is available)
-- `~/upbge_android_build_base/apk/player_bundle_player-only_arm64-v8a-latest.tar.gz`
+- `lib/arm64-v8a/libupbgeplayer.so` (stripped)
+- `assets/game.blend` (`--blend`, or a placeholder the add-on replaces)
+- `assets/upbge/` resources and `assets/upbge/files.txt`, the extraction
+  manifest (stamp + file list)
+- `AndroidManifest.xml`, `res/`, `PACKAGE_README.txt`, `upbge_commit.txt`
+- `upbge-player-player-only-arm64-v8a.apk`, built with `aapt2`, `zipalign`
+  and `apksigner` from the newest SDK build-tools and signed with
+  `~/.android/debug.keystore` (created if missing)
 
-`scripts/verify_build.py` runs automatically and confirms:
+and archives the APK as
+`~/upbge_android_build_base/apk/upbge-player-player-only-arm64-v8a-latest.apk`.
+
+`scripts/verify_build.py` (run by `make package`) confirms:
 
 - the `.so` is an ELF shared object of the right machine type
-- `android_main` is exported as a symbol
-- the runtime zip contains `datafiles/` and `scripts/`
-- the manifest references `org.upbge.player`
+- `ANativeActivity_onCreate` is exported
+- every file in `files.txt` exists, including the OCIO config and the stdlib
+- the manifest declares `android.app.NativeActivity` with `lib_name` `upbgeplayer`
 
 ## 8. (Optional) Install and run on a device
 
@@ -199,43 +211,46 @@ With a phone connected over USB or wireless ADB:
 make deploy ARCH=arm64-v8a
 ```
 
-This installs the unsigned APK (you may need `adb root` on a userdebug image,
-or sign the APK first), launches `MainActivity`, captures 10 s of logcat to
+This installs the latest APK, launches `android.app.NativeActivity`,
+captures 10 s of logcat (tag `UPBGE`: the player's stdout/stderr) to
 `./upbge.log`, and saves a screenshot to `./upbge.png`.
 
 To debug live:
 
 ```bash
 build_files/android/debug.sh status
-build_files/android/debug.sh on -- --debug-wm --log wm.*
+build_files/android/debug.sh on '-g show_framerate=1'
 build_files/android/debug.sh log
 build_files/android/debug.sh crash
 ```
+
+Lifecycle (v1): leaving the app (Home, app switch, screen off) destroys the
+window and ends the game; the next launch starts it again.
 
 ## 9. The "four silent traps" Wanderson warns about
 
 These all produce a green build that runs old code. Memorise them:
 
-1. **The fast path only swaps `libblender.so`.**
-   A Python, keymap, datafile or manifest change requires `--repackage`.
-   `make package` does this for you.
+1. **Assets are not rebuilt by ninja.**
+   A Python, datafile, manifest or game change requires `--repackage`
+   (`make package`).
 
 2. **A version or DNA change needs `--reconfigure`.**
    The fast path does not rebuild the host generators, so `makesdna` and
    `makesrna` keep whatever build they had and the generated DNA / RNA disagree
    with the binary. Pass `--reconfigure` after a DNA header bump.
 
-3. **The device unpacks the runtime once.**
-   `BlenderActivity` writes a marker into its data dir and returns early while
-   it exists. The marker now carries a hash of the payload (see
-   `scripts/package_player.sh`), so a changed payload invalidates it. If you
-   suspect a stale payload: `adb shell pm clear org.upbge.player`.
+3. **The device unpacks the resources once.**
+   `android_main()` keeps a copy of `assets/upbge/files.txt` and skips the
+   extraction while it matches. The stamp line hashes every packaged file's
+   size and mtime, so a changed asset re-extracts. If you suspect a stale
+   install: `adb shell pm clear org.upbge.player`.
 
 4. **`find_package(JPEG)` errors lie.**
    The build picks the wrong prefix if there is an abandoned
    `lib/android_arm64` elsewhere under the search path. Read the
-   `Android LIBDIR =` line the configure step prints before believing a
-   missing-dependency error. Pass `--build-base` to be explicit.
+   `[upbge-android] ... ROOT=` line the configure step prints before believing
+   a missing-dependency error. Pass `--build-base` to be explicit.
 
 ## 10. CI
 

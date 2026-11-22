@@ -5,7 +5,7 @@ The dependency prefix `$BUILD_BASE/lib/android_<arch>/` is built by
 from `deps/recipes/*.sh`. This page documents the list and the rationale for
 each entry.
 
-## Recipes (36 libraries)
+## Recipes (37 libraries)
 
 These are the libraries the `blenderplayer` runtime needs to boot a
 `.blend` and run a game. The list is fixed (no feature-set variants).
@@ -38,7 +38,8 @@ included; versions of the libraries added for it follow
 ### Fonts / text
 | Lib | Why |
 | --- | --- |
-| freetype | Font rendering |
+| brotli | WOFF2 decoding for FreeType (Blender requires it; merged into `libfreetype.a`) |
+| freetype | Font rendering (with Brotli, like Blender's own build) |
 
 ### Audio
 | Lib | Why |
@@ -62,7 +63,7 @@ included; versions of the libraries added for it follow
 ### Python
 | Lib | Why |
 | --- | --- |
-| python | CPython 3.13 (UPBGE master requires it), static, with every stdlib extension module built in. The stdlib ships inside `blender_runtime.zip`. |
+| python | CPython 3.13 (UPBGE master requires it), static, with every stdlib extension module built in. The stdlib ships in `assets/upbge/python/` and is copied to internal storage on first launch. |
 
 ### Misc
 | Lib | Why |

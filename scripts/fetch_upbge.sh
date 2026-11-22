@@ -50,4 +50,4 @@ git -C "$SRC" describe --tags --always >> "$SRC/.upbge_commit" || true
 echo "[fetch_upbge] HEAD: $(cat "$SRC/.upbge_commit" | head -1)"
 
 # Apply the Android patches on top.
-"$ROOT/scripts/apply_patches.sh"
+bash "$ROOT/scripts/apply_patches.sh"

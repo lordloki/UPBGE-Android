@@ -1,13 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  AndroidManifest.xml for the UPBGE player bundle.
+  AndroidManifest.xml for the UPBGE player.
 
-  The future Blender add-on takes this template, replaces assets/game.blend
-  with the real game, signs the APK, and ships it.
-
-  Package name: org.upbge.player  — the add-on MUST keep the package name or
-  change it consistently here AND in MainActivity.java (the JNI call resolves
-  org.upbge.player.MainActivity).
+  No Java/Kotlin code: android.app.NativeActivity loads lib<android.app.lib_name>.so
+  (libupbgeplayer.so), whose android_native_app_glue runs android_main(). The game
+  is assets/game.blend; the add-on replaces it and may rename the package.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="org.upbge.player"
@@ -19,47 +16,34 @@
         android:minSdkVersion="31"
         android:targetSdkVersion="34" />
 
-    <!-- UPBGE needs a GPU. Vulkan is mandatory on Android 12+. -->
+    <!-- Vulkan 1.2 (0x402000): timeline semaphores are core there. -->
     <uses-feature android:name="android.hardware.vulkan.level" android:required="true" />
     <uses-feature android:name="android.hardware.vulkan.version"
                   android:version="4202496" android:required="true" />
-    <!-- Touch screen (a game needs input). -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="true" />
-
-    <!-- The native library is arm64-v8a or armeabi-v7a; the add-on filters
-         this rule to the architecture it actually packaged. -->
-    <uses-feature android:glEsVersion="0x00030000" android:required="false" />
 
     <application
         android:label="@string/app_name"
         android:icon="@android:drawable/sym_def_app_icon"
-        android:hasCode="true"
+        android:hasCode="false"
         android:allowBackup="false"
-        android:supportsRtl="true"
-        android:largeHeap="true"
-        android:hardwareAccelerated="true"
         android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
 
-        <!-- The activity is the surface that hosts ANativeWindow → Vulkan →
-             UPBGE. android_main() in the glue reads the launch intent's
-             extras to know which .blend to load (defaults to assets/game.blend). -->
+        <!-- configChanges: without them a rotation or keyboard change recreates the
+             activity, which destroys the window and (lifecycle v1) ends the game.
+             sensorLandscape flips between the two landscape orientations; the
+             Vulkan backend re-creates its pre-rotated swapchain for that. -->
         <activity
-            android:name=".MainActivity"
+            android:name="android.app.NativeActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
             android:launchMode="singleTask"
-            android:screenOrientation="sensorLandscape">
+            android:screenOrientation="sensorLandscape"
+            android:resizeableActivity="false">
+            <meta-data android:name="android.app.lib_name" android:value="upbgeplayer" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <!-- Allow the future add-on to deep-link a .blend file:
-                 adb shell am start -n org.upbge.player/.MainActivity \
-                     -d "file:///sdcard/mygame.blend" -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="application/x-blender" />
             </intent-filter>
         </activity>
     </application>

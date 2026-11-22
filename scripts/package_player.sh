@@ -1,28 +1,30 @@
 #!/usr/bin/env bash
 # scripts/package_player.sh
 #
-# Assemble the player bundle that the future Blender add-on will wrap together
-# with a .blend file to produce a final APK.
+# Assemble the player APK (normally called by build.py).
 #
-# Inputs (passed as flags by build.py):
-#   --binary PATH        the produced libupbgeplayer.so (or blenderplayer ELF)
-#   --upbge-source PATH  the UPBGE source tree (for scripts/, release/datafiles/)
-#   --dep-prefix PATH    the deps prefix (for Python stdlib + site-packages)
-#   --stage PATH         where to assemble the bundle (cleaned first)
-#   --feature STR        player-only (only supported value)
-#   --arch STR           arm64-v8a (only target supported)
-#   --apk-template PATH  the build_files/android/apk/ skeleton dir
+#   --binary PATH        libupbgeplayer.so
+#   --upbge-source PATH  UPBGE checkout (scripts/, release/datafiles/)
+#   --dep-prefix PATH    deps prefix (Python standard library)
+#   --stage PATH         output directory (recreated)
+#   --arch ARCH          arm64-v8a
+#   --feature STR        player-only
+#   --apk-template PATH  build_files/android/apk
+#   --blend PATH         game to ship as assets/game.blend (default: placeholder)
+#   --debuggable         keep symbols, mark the APK debuggable
 #
-# Output layout under --stage:
-#   lib/<arch>/libupbgeplayer.so
-#   assets/blender_runtime.zip   (scripts/, datafiles/, Python, ...)
-#   assets/game.blend            (placeholder, the add-on replaces it)
-#   AndroidManifest.xml
-#   res/...
-#   src/main/java/org/upbge/player/MainActivity.java
-#   unsigned.apk                  (assembled with aapt2, signed with debug key
-#                                  if `apksigner` is available; otherwise the
-#                                  add-on signs it later)
+# Layout under --stage:
+#   AndroidManifest.xml, res/            from the template
+#   lib/<arch>/libupbgeplayer.so         stripped unless --debuggable
+#   assets/game.blend
+#   assets/upbge/files.txt               extraction manifest, see below
+#   assets/upbge/{datafiles,scripts,python}/
+#                                        BLENDER_SYSTEM_RESOURCES on the device
+#   upbge-player-<feature>-<arch>.apk    aligned, signed with the debug key
+#
+# files.txt: one stamp line, then every asset path the player copies to
+# internal storage on first launch. The player compares the whole file with
+# the copy it kept, so any change re-extracts.
 
 set -euo pipefail
 
@@ -35,127 +37,188 @@ STAGE=""
 FEATURE="player-only"
 ARCH="arm64-v8a"
 APK_TEMPLATE="$ROOT/build_files/android/apk"
+BLEND=""
+DEBUGGABLE=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --binary)      BINARY="$2"; shift 2;;
+        --binary)       BINARY="$2"; shift 2;;
         --upbge-source) UPBGE_SOURCE="$2"; shift 2;;
-        --dep-prefix)  DEP_PREFIX="$2"; shift 2;;
-        --stage)       STAGE="$2"; shift 2;;
-        --feature)     FEATURE="$2"; shift 2;;
-        --arch)        ARCH="$2"; shift 2;;
+        --dep-prefix)   DEP_PREFIX="$2"; shift 2;;
+        --stage)        STAGE="$2"; shift 2;;
+        --feature)      FEATURE="$2"; shift 2;;
+        --arch)         ARCH="$2"; shift 2;;
         --apk-template) APK_TEMPLATE="$2"; shift 2;;
+        --blend)        BLEND="$2"; shift 2;;
+        --debuggable)   DEBUGGABLE=1; shift;;
         -h|--help)
-            sed -n '2,30p' "${BASH_SOURCE[0]}"
+            sed -n '2,28p' "${BASH_SOURCE[0]}"
             exit 0;;
         *) echo "unknown arg: $1" >&2; exit 2;;
     esac
 done
 
 for v in BINARY UPBGE_SOURCE DEP_PREFIX STAGE; do
-    if [ -z "${!v:-}" ]; then echo "missing --$(echo $v | tr _ - | tr A-Z a-z)" >&2; exit 2; fi
+    if [ -z "${!v:-}" ]; then
+        echo "missing --$(echo "$v" | tr '_' '-' | tr '[:upper:]' '[:lower:]')" >&2
+        exit 2
+    fi
 done
 
-echo "[package_player] stage=$STAGE arch=$ARCH feature=$FEATURE"
+log() { echo "[package_player] $*"; }
 
-# 1. Clean and create the stage.
+PYVER=3.13  # UPBGE master (build_environment/cmake/versions.cmake)
+PYLIB="$DEP_PREFIX/lib/python$PYVER"
+[ -d "$PYLIB" ] || { echo "Python $PYVER standard library not found: $PYLIB" >&2; exit 1; }
+
+log "stage=$STAGE arch=$ARCH feature=$FEATURE"
 rm -rf "$STAGE"
-mkdir -p "$STAGE/lib/$ARCH" "$STAGE/assets" "$STAGE/src/main/java/org/upbge/player" \
-         "$STAGE/src/main/res/values" "$STAGE/build"
+mkdir -p "$STAGE/lib/$ARCH" "$STAGE/assets/upbge" "$STAGE/build"
+RES="$STAGE/assets/upbge"
 
-# 2. Native library: libupbgeplayer.so in lib/<arch>/.
-DST_LIB="$STAGE/lib/$ARCH/libupbgeplayer.so"
-cp -v "$BINARY" "$DST_LIB"
+# copy_tree SRC DST [tar --exclude patterns...]
+copy_tree() {
+    local src="$1" dst="$2"; shift 2
+    local excludes=(--exclude=__pycache__ --exclude='*.pyc')
+    local pattern
+    for pattern in "$@"; do
+        excludes+=("--exclude=$pattern")
+    done
+    mkdir -p "$dst"
+    tar -C "$src" "${excludes[@]}" -cf - . | tar -C "$dst" -xf -
+}
 
-# 3. Runtime payload zip.
-PAYLOAD="$STAGE/assets/blender_runtime.zip"
-( cd "$UPBGE_SOURCE"
-  # UPBGE ships its bundled scripts + datafiles under release/.
-  zip -qr "$PAYLOAD" \
-        release/datafiles \
-        release/scripts \
-        release/fonts \
-        release/licenses \
-        2>/dev/null || true
-)
-
-# Python stdlib + site-packages come from the deps prefix (whatever 3.x the
-# python recipe installed).
-for pydir in "$DEP_PREFIX"/lib/python3.*; do
-  [ -d "$pydir" ] || continue
-  ( cd "$DEP_PREFIX/lib"
-    zip -qr "$PAYLOAD" "$(basename "$pydir")"
-  )
-done
-
-# 4. Game .blend placeholder. The add-on replaces this with the real one.
-cat > "$STAGE/assets/game.blend" <<'EOF'
-PLACEHOLDER: the add-on will overwrite this file with the actual game .blend.
-EOF
-
-# 5. AndroidManifest.xml from the template.
-cp "$APK_TEMPLATE/src/main/AndroidManifest.xml" "$STAGE/AndroidManifest.xml"
-
-# 6. MainActivity.java from the template.
-cp "$APK_TEMPLATE/src/main/java/org/upbge/player/MainActivity.java" \
-   "$STAGE/src/main/java/org/upbge/player/MainActivity.java"
-
-# 7. strings.xml (used by the launcher label).
-cp "$APK_TEMPLATE/src/main/res/values/strings.xml" \
-   "$STAGE/src/main/res/values/strings.xml"
-
-# 8. blenders_args.txt default (the player reads this on start).
-cat > "$STAGE/assets/blender_args.txt" <<'EOF'
--w
--g
-EOF
-
-# 9. upbge_commit.txt for traceability.
-if [ -f "$UPBGE_SOURCE/.upbge_commit" ]; then
-    cp "$UPBGE_SOURCE/.upbge_commit" "$STAGE/assets/upbge_commit.txt"
-fi
-
-# 10. Try to assemble an unsigned APK if the SDK is available.
-AAPT2="$(command -v aapt2 || echo "")"
-if [ -n "$AAPT2" ] && [ -n "${ANDROID_HOME:-}" ]; then
-    echo "[package_player] assembling unsigned APK"
-    RES_DIR="$STAGE/src/main/res"
-    MANIFEST="$STAGE/AndroidManifest.xml"
-    APK_UNALIGNED="$STAGE/build/upbge-player-unsigned.apk"
-    # build.py does not source env.sh; default it here (set -u).
-    TARGET_API="${ANDROID_TARGET_API:-34}"
-    TARGET_API="${TARGET_API#android-}"
-    # Generate R.java for the app's resources (only strings for now).
-    "$AAPT2" compile --dir "$RES_DIR" -o "$STAGE/build/resources.zip"
-    "$AAPT2" link \
-        -I "$ANDROID_HOME/platforms/android-${TARGET_API}/android.jar" \
-        --manifest "$MANIFEST" \
-        -o "$APK_UNALIGNED" \
-        --java "$STAGE/src/main/java" \
-        --auto-add-overlay \
-        "$STAGE/build/resources.zip" || true
-    # Stage the native libs and assets into the APK.
-    ( cd "$STAGE" && zip -qr "$APK_UNALIGNED" lib assets ) || true
-    ln -sf "$APK_UNALIGNED" "$STAGE/upbge-player-$FEATURE-$ARCH.apk"
-    echo "[package_player] unsigned APK: $APK_UNALIGNED"
+# --- Native library ------------------------------------------------------------
+LIB="$STAGE/lib/$ARCH/libupbgeplayer.so"
+if [ "$DEBUGGABLE" -eq 1 ]; then
+    cp "$BINARY" "$LIB"
 else
-    echo "[package_player] aapt2 or ANDROID_HOME missing; the add-on will assemble the APK"
+    STRIP="${ANDROID_NDK_HOME:-}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+    [ -x "$STRIP" ] || STRIP="$(command -v llvm-strip || true)"
+    if [ -n "$STRIP" ]; then
+        # Dynamic symbols stay: NativeActivity needs ANativeActivity_onCreate.
+        "$STRIP" --strip-unneeded -o "$LIB" "$BINARY"
+    else
+        log "WARNING: llvm-strip not found, packaging an unstripped library"
+        cp "$BINARY" "$LIB"
+    fi
 fi
 
-# 11. README explaining what the add-on needs to do next.
-cat > "$STAGE/PACKAGE_README.txt" <<EOF
-UPBGE player bundle
-===================
-arch:   $ARCH
-feature: $FEATURE
-binary: lib/$ARCH/libupbgeplayer.so
+# --- Resources (the same layout as an installed <version>/ directory) -----------
+copy_tree "$UPBGE_SOURCE/release/datafiles/colormanagement" "$RES/datafiles/colormanagement"
+copy_tree "$UPBGE_SOURCE/release/datafiles/fonts"           "$RES/datafiles/fonts"
+for dir in modules startup bge; do
+    copy_tree "$UPBGE_SOURCE/scripts/$dir" "$RES/scripts/$dir"
+done
+# Static interpreter: the stdlib is pure Python (no lib-dynload). Drop what a
+# game never imports, plus config-3.x (the static libpython, ~50 MB).
+copy_tree "$PYLIB" "$RES/python/lib/python$PYVER" \
+    "./config-$PYVER*" ./test ./idlelib ./tkinter ./turtledemo ./ensurepip ./lib2to3
 
-To produce a final installable APK, the Blender add-on must:
-  1. Replace assets/game.blend with the actual game file.
-  2. (optional) Edit assets/blender_args.txt to pass extra flags.
-  3. Sign the APK with your release key (apksigner / jarsigner).
-  4. zipalign -p 4 in.apk out.apk
-  5. apksigner sign --ks your.key.jks out.apk
+# --- Game ------------------------------------------------------------------------
+if [ -n "$BLEND" ]; then
+    cp "$BLEND" "$STAGE/assets/game.blend"
+else
+    # Not a .blend: the player fails to load it. The add-on writes the real one.
+    echo "PLACEHOLDER: replace assets/game.blend with the game." > "$STAGE/assets/game.blend"
+fi
+
+# --- Extraction manifest -----------------------------------------------------------
+# Sizes and mtimes of every file feed the stamp, so a changed asset changes it.
+(
+    cd "$STAGE/assets"
+    files="$(find upbge game.blend -type f ! -path upbge/files.txt | LC_ALL=C sort)"
+    stamp="$(printf '%s\n' "$files" | xargs -d '\n' stat -c '%n %s %Y' | sha1sum | cut -c1-40)"
+    { echo "upbge-android $stamp"; printf '%s\n' "$files"; } > upbge/files.txt
+)
+log "assets: $(($(wc -l < "$RES/files.txt") - 1)) files, $(du -sh "$STAGE/assets" | cut -f1)"
+
+# --- Manifest and resources ----------------------------------------------------------
+cp "$APK_TEMPLATE/src/main/AndroidManifest.xml" "$STAGE/AndroidManifest.xml"
+cp -r "$APK_TEMPLATE/src/main/res" "$STAGE/res"
+
+# Source traceability (GPL): the exact UPBGE commit, kept outside assets/.
+if [ -f "$UPBGE_SOURCE/.upbge_commit" ]; then
+    cp "$UPBGE_SOURCE/.upbge_commit" "$STAGE/upbge_commit.txt"
+else
+    git -C "$UPBGE_SOURCE" rev-parse HEAD > "$STAGE/upbge_commit.txt" 2>/dev/null || true
+fi
+
+cat > "$STAGE/PACKAGE_README.txt" <<EOF
+UPBGE player bundle ($FEATURE, $ARCH)
+
+lib/$ARCH/libupbgeplayer.so   NativeActivity library (android.app.lib_name)
+assets/game.blend            the game; replace it to ship another one
+assets/upbge/                resources copied to internal storage at first run;
+                             regenerate assets/upbge/files.txt after any change
+                             (scripts/package_player.sh does it)
+
+Release signing: zipalign -p -f 4 in.apk aligned.apk
+                 apksigner sign --ks release.jks aligned.apk
 EOF
 
-echo "[package_player] done: $STAGE"
+# --- APK ---------------------------------------------------------------------------------
+find_tool() {
+    local name="$1" dir
+    if command -v "$name" >/dev/null 2>&1; then
+        command -v "$name"
+        return 0
+    fi
+    [ -n "${ANDROID_HOME:-}" ] || return 1
+    # Newest build-tools first.
+    while IFS= read -r dir; do
+        if [ -x "$dir/$name" ]; then
+            echo "$dir/$name"
+            return 0
+        fi
+    done < <(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -rV)
+    return 1
+}
+
+AAPT2="$(find_tool aapt2 || true)"
+ZIPALIGN="$(find_tool zipalign || true)"
+APKSIGNER="$(find_tool apksigner || true)"
+TARGET_API="${ANDROID_TARGET_API:-34}"
+TARGET_API="${TARGET_API#android-}"
+ANDROID_JAR="${ANDROID_HOME:-}/platforms/android-$TARGET_API/android.jar"
+
+if [ -z "$AAPT2" ] || [ -z "$ZIPALIGN" ] || [ ! -f "$ANDROID_JAR" ]; then
+    log "aapt2/zipalign or $ANDROID_JAR missing: stage only, no APK"
+    log "done: $STAGE"
+    exit 0
+fi
+
+APK_BASE="$STAGE/build/base.apk"
+APK_ALIGNED="$STAGE/build/aligned.apk"
+APK_OUT="$STAGE/upbge-player-$FEATURE-$ARCH.apk"
+LINK_ARGS=()
+[ "$DEBUGGABLE" -eq 1 ] && LINK_ARGS+=(--debug-mode)
+
+"$AAPT2" compile --dir "$STAGE/res" -o "$STAGE/build/res.zip"
+"$AAPT2" link -I "$ANDROID_JAR" --manifest "$STAGE/AndroidManifest.xml" \
+    "${LINK_ARGS[@]}" -o "$APK_BASE" "$STAGE/build/res.zip"
+# Assets and the library go in with zip, not `aapt2 link -A`: aapt2 skips
+# directories starting with '_' (_bpy_internal, __phello__, ...) and dot files.
+( cd "$STAGE" && zip -qr "$APK_BASE" assets lib )
+"$ZIPALIGN" -p -f 4 "$APK_BASE" "$APK_ALIGNED"
+
+if [ -z "$APKSIGNER" ]; then
+    mv "$APK_ALIGNED" "$APK_OUT"
+    log "apksigner missing: $APK_OUT is unsigned (adb install needs a signature)"
+    exit 0
+fi
+
+KEYSTORE="${ANDROID_DEBUG_KEYSTORE:-$HOME/.android/debug.keystore}"
+if [ ! -f "$KEYSTORE" ]; then
+    KEYTOOL="${JAVA_HOME:+$JAVA_HOME/bin/}keytool"
+    command -v "$KEYTOOL" >/dev/null 2>&1 || KEYTOOL=keytool
+    mkdir -p "$(dirname "$KEYSTORE")"
+    log "creating debug keystore $KEYSTORE"
+    "$KEYTOOL" -genkeypair -keystore "$KEYSTORE" -storepass android \
+        -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 \
+        -validity 10000 -dname "CN=Android Debug,O=Android,C=US" >/dev/null
+fi
+"$APKSIGNER" sign --ks "$KEYSTORE" --ks-pass pass:android --key-pass pass:android \
+    --ks-key-alias androiddebugkey --out "$APK_OUT" "$APK_ALIGNED"
+log "APK: $APK_OUT (debug key)"
+log "done: $STAGE"

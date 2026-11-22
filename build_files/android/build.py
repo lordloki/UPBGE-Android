@@ -16,7 +16,8 @@ Options:
     --build-base DIR      Override BUILD_BASE
     --clean               Remove the build tree before configuring
     --reconfigure         Re-run CMake, keep object files (needed after DNA change)
-    --repackage           Rebuild the runtime payload zip (needed after asset change)
+    --repackage           Only re-package the last built library (assets or game changed)
+    --blend PATH          Game to package as assets/game.blend (default: placeholder)
     --install             Push the produced APK to the connected device
     --run                 Start the app on the connected device after install
     --debuggable          Build with debug symbols and `run-as` support
@@ -34,7 +35,8 @@ Pipeline:
     4. Build host code generators (makesdna, makesrna, ...) with the SAME feature set.
     5. Configure the target build with the CMake toolchain and feature file.
     6. Build blenderplayer.
-    7. Package: assemble the APK skeleton + assets + native binary, sign, archive.
+    7. Package: stage resources + game + native library, build and sign the APK,
+       archive it.
     8. Optionally install and run on a connected device.
 """
 
@@ -59,18 +61,14 @@ ANDROID_DIR = THIS_FILE.parent                 # build_files/android
 ROOT_DIR = ANDROID_DIR.parent.parent           # upbge_android_build/
 FEATURES_DIR = ANDROID_DIR / "features"
 TOOLCHAIN_FILE = ANDROID_DIR / "toolchain" / "android.toolchain.cmake"
-PATCHES_DIR = ANDROID_DIR / "patches"
+PROJECT_INCLUDE = ANDROID_DIR / "cmake" / "upbge_android_project.cmake"
 APK_TEMPLATE_DIR = ANDROID_DIR / "apk"
 
 VALID_FEATURES = ("player-only",)
 VALID_ARCHES = ("arm64-v8a",)
 
-# Map ABI -> NDK CMake triplet
-ARCH_TRIPLET = {
-    "arm64-v8a":    "aarch64-linux-android",
-}
-
 PACKAGE_NAME = "org.upbge.player"
+ACTIVITY = f"{PACKAGE_NAME}/android.app.NativeActivity"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -171,6 +169,9 @@ def check_prereqs(env: Env) -> None:
     if not (env.upbge_source / "source" / "gameengine").is_dir():
         missing.append(f"{env.upbge_source} does not look like an UPBGE checkout "
                        "(source/gameengine/ missing)")
+    elif not (env.upbge_source / "source" / "gameengine" / "GamePlayer" / "android").is_dir():
+        missing.append(f"{env.upbge_source} lacks the Android player "
+                       "(run scripts/apply_patches.sh)")
     if not shutil.which("cmake"):
         missing.append("cmake (not on PATH)")
     if not shutil.which("ninja"):
@@ -195,10 +196,20 @@ def check_dep_prefix(env: Env, arch: str) -> Path:
              "(a previous deps build may have failed). Check deps/build.log.")
     return prefix
 
+# Code generators the build runs (see cmake/upbge_android_project.cmake).
+# msgfmt is only needed with WITH_INTERNATIONAL, which the feature files disable.
+HOST_TOOLS = ("makesdna", "makesrna", "datatoc", "shader_tool")
+
 def build_host_tools(env: Env, feature: str, verbose: bool, jobs: int) -> Path:
-    """Host code generators. MUST use the same feature set as the target."""
+    """Host code generators. MUST use the same feature set as the target.
+
+    The feature files set WITH_STRICT_BUILD_OPTIONS, so a feature whose
+    library is missing on one side fails that configure instead of silently
+    producing generators (makesrna) that disagree with the target. The host
+    uses its usual UPBGE dependencies (system packages or lib/linux_x64).
+    Returns the directory holding the host binaries.
+    """
     host_build = env.build_base / f"build_host_tools_{feature}"
-    host_install = host_build  # in-tree; makesdna/makesrna are run from build dir
     cmake_cache = host_build / "CMakeCache.txt"
 
     if cmake_cache.is_file():
@@ -223,24 +234,24 @@ def build_host_tools(env: Env, feature: str, verbose: bool, jobs: int) -> Path:
         host_build.mkdir(parents=True, exist_ok=True)
         cmd = [
             "cmake", "-G", "Ninja",
-            f"-DCMAKE_BUILD_TYPE=Release",
+            "-C", str(feature_file),
+            "-DCMAKE_BUILD_TYPE=Release",
             f"-DCMAKE_C_COMPILER={env.host_cc}",
             f"-DCMAKE_CXX_COMPILER={env.host_cxx}",
-            f"-DCMAKE_MAKE_PROGRAM=ninja",
-            f"-C", str(feature_file),
-            "-DWITH_ANDROID=ON",
-            "-DWITH_HOST_TOOLS_ONLY=ON",
+            "-DCMAKE_MAKE_PROGRAM=ninja",
             str(env.upbge_source),
         ]
         run(cmd, cwd=host_build, verbose=verbose)
-    # makesdna/makesrna are the only code generators UPBGE master has.
-    run(["ninja", f"-j{jobs}", "makesdna", "makesrna"],
-        cwd=host_build, verbose=verbose)
-    return host_install
+    # Only the generators: nothing else of the host tree is ever built.
+    run(["ninja", f"-j{jobs}", *HOST_TOOLS], cwd=host_build, verbose=verbose)
+    tools_dir = host_build / "bin"
+    missing = [t for t in HOST_TOOLS if not (tools_dir / t).is_file()]
+    if missing:
+        raise BuildError(f"host tools missing in {tools_dir}: {', '.join(missing)}")
+    return tools_dir
 
 def configure_target(env: Env, arch: str, feature: str, dep_prefix: Path,
-                     verbose: bool, debuggable: bool) -> Path:
-    triplet = ARCH_TRIPLET[arch]
+                     host_tools: Path, verbose: bool, debuggable: bool) -> Path:
     build_dir = env.build_base / f"build_android_{feature}_{arch}"
     feature_file = FEATURES_DIR / f"{feature.replace('-', '_')}.cmake"
     cmake_cache = build_dir / "CMakeCache.txt"
@@ -253,23 +264,26 @@ def configure_target(env: Env, arch: str, feature: str, dep_prefix: Path,
         build_dir.mkdir(parents=True, exist_ok=True)
         cmd = [
             "cmake", "-G", "Ninja",
+            "-C", str(feature_file),
             f"-DCMAKE_TOOLCHAIN_FILE={TOOLCHAIN_FILE}",
             f"-DANDROID_ABI={arch}",
             f"-DANDROID_PLATFORM={env.android_platform}",
             f"-DANDROID_NDK={env.ndk_home}",
             f"-DCMAKE_BUILD_TYPE={'RelWithDebInfo' if debuggable else 'Release'}",
-            f"-DCMAKE_MAKE_PROGRAM=ninja",
+            "-DCMAKE_MAKE_PROGRAM=ninja",
             f"-DCMAKE_FIND_ROOT_PATH={dep_prefix}",
-            f"-DANDROID_LIBDIR={dep_prefix}",
-            f"-DBUILD_BASE={env.build_base}",
-            f"-DUPBGE_ANDROID_ROOT={ROOT_DIR}",
-            "-C", str(feature_file),
-            "-DWITH_ANDROID=ON",
-            "-DWITH_PLAYER=ON",
-            "-DWITH_PYTHON=ON",
-            "-DWITH_PYTHON_INSTALL=ON",
-            "-DWITH_GPU_DEBUG=OFF",
-            f"-DUPBGE_HOST_TOOLS_BUILD={env.build_base}/build_host_tools_{feature}",
+            # Build environment (not features, so not in the feature files):
+            # libraries come from the deps prefix, not Blender's lib/ layout;
+            # the NDK clang already links with its own lld, while
+            # WITH_LINKER_LLD would pick the host's ld.lld from PATH.
+            "-DWITH_LIBS_PRECOMPILED=OFF",
+            "-DWITH_INSTALL_PORTABLE=ON",
+            "-DWITH_CPU_CHECK=OFF",
+            "-DWITH_LINKER_LLD=OFF",
+            "-DWITH_LINKER_MOLD=OFF",
+            f"-DCMAKE_PROJECT_Blender_INCLUDE={PROJECT_INCLUDE}",
+            f"-DUPBGE_ANDROID_HOST_TOOLS_DIR={host_tools}",
+            f"-DUPBGE_ANDROID_DEPS_PREFIX={dep_prefix}",
             str(env.upbge_source),
         ]
         run(cmd, cwd=build_dir, verbose=verbose)
@@ -278,83 +292,78 @@ def configure_target(env: Env, arch: str, feature: str, dep_prefix: Path,
 def build_target(env: Env, build_dir: Path, arch: str, feature: str,
                  verbose: bool, jobs: int) -> Path:
     run(["ninja", f"-j{jobs}", "blenderplayer"], cwd=build_dir, verbose=verbose)
-    binary = build_dir / "bin" / "blenderplayer"
+    # source/blenderplayer builds a shared library on Android (NativeActivity).
+    binary = build_dir / "bin" / "libupbgeplayer.so"
     if not binary.exists():
-        # Some CMake configs put it under source/gameengine/blenderplayer/
-        alt = build_dir / "source" / "gameengine" / "blenderplayer" / "blenderplayer"
-        if alt.exists():
-            binary = alt
-    if not binary.exists():
-        raise BuildError(f"blenderplayer binary not found after build: {binary}")
+        raise BuildError(f"player library not found after build: {binary}")
     info(f"produced binary: {binary}")
     return binary
 
 def repackage_payload(env: Env, arch: str, feature: str, binary: Path,
-                      verbose: bool) -> Path:
-    """Bundle scripts/, release/datafiles/, assets/ and the binary into
-    blender_runtime_<cfg>_<arch>.zip — used by the APK skeleton and by the
-    future add-on to ship the runtime alongside a .blend."""
+                      blend: Path | None, debuggable: bool, verbose: bool) -> Path:
+    """Assemble the stage and the APK with scripts/package_player.sh."""
     pkg = env.build_base / f"android_apk_stage_{feature}_{arch}"
-    if pkg.exists():
-        shutil.rmtree(pkg)
-    payload_zip = pkg / "assets" / "blender_runtime.zip"
-    payload_zip.parent.mkdir(parents=True, exist_ok=True)
-
-    # Reuse the packaging helper that already knows what to include.
-    script = ROOT_DIR / "scripts" / "package_player.sh"
-    run(["bash", str(script),
-         "--binary", str(binary),
-         "--upbge-source", str(env.upbge_source),
-         "--dep-prefix", str(env.build_base / "lib" / f"android_{arch}"),
-         "--stage", str(pkg),
-         "--feature", feature,
-         "--arch", arch,
-         "--apk-template", str(APK_TEMPLATE_DIR)],
-        verbose=verbose)
+    cmd = ["bash", str(ROOT_DIR / "scripts" / "package_player.sh"),
+           "--binary", str(binary),
+           "--upbge-source", str(env.upbge_source),
+           "--dep-prefix", str(env.build_base / "lib" / f"android_{arch}"),
+           "--stage", str(pkg),
+           "--feature", feature,
+           "--arch", arch,
+           "--apk-template", str(APK_TEMPLATE_DIR)]
+    if blend:
+        cmd += ["--blend", str(blend)]
+    if debuggable:
+        cmd += ["--debuggable"]
+    pkg_env = dict(os.environ,
+                   ANDROID_HOME=str(env.android_home),
+                   ANDROID_NDK_HOME=str(env.ndk_home),
+                   ANDROID_TARGET_API=env.android_target_api,
+                   JAVA_HOME=str(env.java_home))
+    run(cmd, env=pkg_env, verbose=verbose)
     return pkg
 
+def stage_apk(stage: Path, arch: str, feature: str) -> Path | None:
+    apk = stage / f"upbge-player-{feature}-{arch}.apk"
+    return apk if apk.is_file() else None
+
 def archive_bundle(env: Env, arch: str, feature: str, stage: Path,
-                   keep: int, no_archive: bool) -> Path:
+                   keep: int, no_archive: bool) -> Path | None:
+    """Keep the last `keep` APKs in BUILD_BASE/apk, plus a -latest symlink."""
+    apk = stage_apk(stage, arch, feature)
+    if apk is None:
+        warn("no APK was produced (Android SDK build-tools missing?); nothing to archive")
+        return None
     archive_dir = env.build_base / "apk"
     archive_dir.mkdir(parents=True, exist_ok=True)
-    tgz = archive_dir / f"player_bundle_{feature}_{arch}.tar.gz"
-    if tgz.exists():
-        tgz.unlink()
-    run(["tar", "-czf", str(tgz),
-         "-C", str(stage), "."], verbose=False)
-    # Symlink latest
-    latest = archive_dir / f"player_bundle_{feature}_{arch}-latest.tar.gz"
+    name = f"upbge-player-{feature}-{arch}"
+    dst = archive_dir / f"{name}-{time.strftime('%Y%m%d-%H%M%S')}.apk"
+    shutil.copy2(apk, dst)
+    latest = archive_dir / f"{name}-latest.apk"
     if latest.is_symlink() or latest.exists():
         latest.unlink()
-    latest.symlink_to(tgz.name)
-
-    # Prune old archives (keep the newest `keep`)
+    latest.symlink_to(dst.name)
     if not no_archive:
-        archives = sorted(archive_dir.glob(f"player_bundle_{feature}_{arch}*.tar.gz"),
+        archives = sorted(archive_dir.glob(f"{name}-2*.apk"),
                           key=lambda p: p.stat().st_mtime, reverse=True)
         for old in archives[keep:]:
             old.unlink()
-    info(f"archived bundle: {tgz}")
-    return tgz
+    info(f"archived APK: {dst}")
+    return dst
 
 def install_and_run(env: Env, stage: Path, arch: str, feature: str,
                     serial: str | None, run_after: bool) -> None:
-    import_re = ["-s"] if serial else []
-    if serial:
-        import_re += [serial]
+    adb_args = ["-s", serial] if serial else []
     adb = shutil.which("adb")
     if not adb:
         raise BuildError("adb not on PATH; install Android platform-tools")
-    # The package_player.sh produces a minimal unsigned APK in stage/.
-    apk_files = list(stage.glob("*.apk"))
-    if not apk_files:
+    apk = stage_apk(stage, arch, feature)
+    if apk is None:
         raise BuildError(f"no APK in {stage}; packaging failed")
-    apk = apk_files[0]
     info(f"installing {apk} on device{' ('+serial+')' if serial else ''}")
-    run([adb, *import_re, "install", "-r", str(apk)])
+    run([adb, *adb_args, "install", "-r", str(apk)])
     if run_after:
-        run([adb, *import_re, "shell", "am", "start", "-n",
-             f"{PACKAGE_NAME}/.MainActivity"])
+        run([adb, *adb_args, "shell", "am", "start", "-n", ACTIVITY])
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -378,7 +387,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--reconfigure", action="store_true",
                    help="re-run CMake, keep object files")
     p.add_argument("--repackage", action="store_true",
-                   help="rebuild the runtime payload")
+                   help="only re-package the last built library")
+    p.add_argument("--blend", type=Path, default=None,
+                   help="game to package as assets/game.blend")
     p.add_argument("--install", action="store_true", help="push APK to device")
     p.add_argument("--run", action="store_true", help="launch the app after install")
     p.add_argument("--debuggable", action="store_true",
@@ -405,14 +416,26 @@ def main() -> int:
         check_prereqs(env)
         dep_prefix = check_dep_prefix(env, args.arch)
         info(f"feature={args.feature} arch={args.arch} jobs={args.jobs}")
-        if not args.skip_host_tools:
-            build_host_tools(env, args.feature, args.verbose, args.jobs)
-        build_dir = configure_target(env, args.arch, args.feature, dep_prefix,
-                                     args.verbose, args.debuggable)
-        binary = build_target(env, build_dir, args.arch, args.feature,
-                              args.verbose, args.jobs)
+        if args.blend and not args.blend.is_file():
+            raise BuildError(f"--blend: no such file: {args.blend}")
+        build_dir = env.build_base / f"build_android_{args.feature}_{args.arch}"
+        if args.repackage:
+            binary = build_dir / "bin" / "libupbgeplayer.so"
+            if not binary.is_file():
+                raise BuildError(f"--repackage: nothing built yet ({binary})")
+        else:
+            if args.skip_host_tools:
+                host_tools = env.build_base / f"build_host_tools_{args.feature}" / "bin"
+                if not all((host_tools / t).is_file() for t in HOST_TOOLS):
+                    raise BuildError(f"--skip-host-tools: host tools not built in {host_tools}")
+            else:
+                host_tools = build_host_tools(env, args.feature, args.verbose, args.jobs)
+            build_dir = configure_target(env, args.arch, args.feature, dep_prefix,
+                                         host_tools, args.verbose, args.debuggable)
+            binary = build_target(env, build_dir, args.arch, args.feature,
+                                  args.verbose, args.jobs)
         stage = repackage_payload(env, args.arch, args.feature, binary,
-                                  args.verbose)
+                                  args.blend, args.debuggable, args.verbose)
         archive_bundle(env, args.arch, args.feature, stage,
                        args.keep, args.no_archive)
         if args.install or args.run:

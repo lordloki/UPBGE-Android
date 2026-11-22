@@ -157,6 +157,7 @@ RECIPES=(
     libpng
     libjpeg
     libwebp
+    brotli          # FreeType (WOFF2 fonts)
     freetype
     gettext
     sqlite

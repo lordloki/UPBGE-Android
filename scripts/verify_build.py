@@ -2,12 +2,14 @@
 """
 scripts/verify_build.py
 
-Sanity-check the produced player bundle:
-  - lib/<arch>/libupbgeplayer.so exists and is non-empty
-  - it is an ELF shared object (PIE) with the right machine type
-  - assets/blender_runtime.zip exists and is a valid zip
-  - AndroidManifest.xml is present and references the right package
-  - assets/game.blend placeholder is present (the add-on replaces it)
+Sanity-check the produced player stage (scripts/package_player.sh):
+  - lib/<arch>/libupbgeplayer.so is an ELF shared object for the right machine
+    and exports ANativeActivity_onCreate (the NativeActivity entry point)
+  - assets/upbge/files.txt lists only files that exist, including the
+    OpenColorIO config and the Python standard library
+  - assets/game.blend is present (the add-on replaces the placeholder)
+  - AndroidManifest.xml declares android.app.NativeActivity with
+    android.app.lib_name = upbgeplayer
 
 Exit code 0 = OK, 1 = problem.
 """
@@ -18,7 +20,6 @@ import argparse
 import os
 import subprocess
 import sys
-import zipfile
 from pathlib import Path
 
 ARCH_MACHINE = {
@@ -55,7 +56,8 @@ def verify(stage: Path, arch: str, verbose: bool) -> int:
                 problems.append(f"wrong machine type: expected {machine}, got: {out.strip()}")
         except FileNotFoundError:
             if verbose: print("  (file(1) not installed; skipping ELF check)")
-        # Make sure android_main is exported. The host's GNU nm usually cannot
+        # NativeActivity resolves ANativeActivity_onCreate with dlsym(); everything
+        # else is built with hidden visibility. The host's GNU nm usually cannot
         # read AArch64 objects; prefer the NDK's llvm-nm.
         nm = "nm"
         ndk = os.environ.get("ANDROID_NDK_HOME", "")
@@ -64,31 +66,35 @@ def verify(stage: Path, arch: str, verbose: bool) -> int:
             nm = str(ndk_nm)
         try:
             out = run([nm, "-D", "--defined-only", str(lib)])
-            if "android_main" not in out:
-                problems.append("symbol `android_main` is not exported from libupbgeplayer.so "
-                                "(the player wrapper did not link correctly)")
-            else:
-                if verbose: print("  symbol android_main: OK")
+            if "ANativeActivity_onCreate" not in out:
+                problems.append("symbol `ANativeActivity_onCreate` is not exported from "
+                                "libupbgeplayer.so (android_native_app_glue not linked in)")
+            elif verbose:
+                print("  symbol ANativeActivity_onCreate: OK")
         except FileNotFoundError:
             if verbose: print("  (nm not installed; skipping symbol check)")
         except subprocess.CalledProcessError as e:
             problems.append(f"{nm} could not read {lib}: rc={e.returncode}")
 
-    # --- runtime payload -----------------------------------------------------
-    payload = stage / "assets" / "blender_runtime.zip"
-    if not payload.exists():
-        problems.append(f"missing runtime payload: {payload}")
+    # --- extraction manifest -------------------------------------------------
+    assets = stage / "assets"
+    files_txt = assets / "upbge" / "files.txt"
+    if not files_txt.exists():
+        problems.append(f"missing extraction manifest: {files_txt}")
     else:
-        try:
-            with zipfile.ZipFile(payload) as z:
-                names = z.namelist()
-                if verbose: print(f"  payload entries: {len(names)}")
-                if not any("datafiles" in n for n in names):
-                    problems.append("payload has no release/datafiles/ entries")
-                if not any("scripts" in n for n in names):
-                    problems.append("payload has no release/scripts/ entries")
-        except zipfile.BadZipFile as e:
-            problems.append(f"payload is not a valid zip: {e}")
+        lines = files_txt.read_text(errors="replace").splitlines()
+        if not lines or not lines[0].startswith("upbge-android "):
+            problems.append("files.txt has no stamp line")
+        listed = [l for l in lines[1:] if l]
+        absent = [l for l in listed if not (assets / l).is_file()]
+        if absent:
+            problems.append(f"files.txt lists {len(absent)} missing files, e.g. {absent[0]}")
+        if verbose: print(f"  assets listed: {len(listed)}")
+        for required in ("upbge/datafiles/colormanagement/config.ocio",
+                         "upbge/python/lib/python3.13/os.py",
+                         "game.blend"):
+            if required not in listed:
+                problems.append(f"files.txt does not list {required}")
 
     # --- manifest ------------------------------------------------------------
     manifest = stage / "AndroidManifest.xml"
@@ -98,13 +104,17 @@ def verify(stage: Path, arch: str, verbose: bool) -> int:
         txt = manifest.read_text(errors="replace")
         if "org.upbge.player" not in txt:
             problems.append("manifest does not reference package org.upbge.player")
-        if "MainActivity" not in txt:
-            problems.append("manifest does not declare MainActivity")
+        if "android.app.NativeActivity" not in txt:
+            problems.append("manifest does not declare android.app.NativeActivity")
+        if 'android:value="upbgeplayer"' not in txt:
+            problems.append("manifest android.app.lib_name is not upbgeplayer")
 
     # --- game.blend placeholder ----------------------------------------------
     blend = stage / "assets" / "game.blend"
     if not blend.exists():
-        problems.append(f"missing assets/game.blend placeholder: {blend}")
+        problems.append(f"missing assets/game.blend: {blend}")
+    elif not blend.read_bytes()[:7] == b"BLENDER" and verbose:
+        print("  game.blend: placeholder (not a .blend yet)")
 
     # --- bundle readme -------------------------------------------------------
     readme = stage / "PACKAGE_README.txt"

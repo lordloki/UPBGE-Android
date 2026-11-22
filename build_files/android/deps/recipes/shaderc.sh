@@ -22,4 +22,8 @@ recipe_shaderc() {
         echo "shaderc did not install libshaderc_combined.a" >&2
         return 1
     }
+    # platform_unix.cmake asks pkg-config for "shaderc", whose .pc names the
+    # shared library removed above. Point it at the combined archive.
+    cp -f "$DEPS_PREFIX/lib/pkgconfig/shaderc_combined.pc" \
+          "$DEPS_PREFIX/lib/pkgconfig/shaderc.pc"
 }

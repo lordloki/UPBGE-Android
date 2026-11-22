@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # scripts/apply_patches.sh
 #
-# Apply every Android patch to the UPBGE source tree, and copy the new files
-# that have no upstream counterpart (GHOST_Android*.cc, android_main_wrapper.cc)
-# into the right places.
+# Apply the Android patches (build_files/android/patches/upbge/*.patch, in
+# order) to the UPBGE source tree:
+#   0001  Blender-owned files (GHOST Vulkan context, gpu/vulkan), every hunk
+#         marked "UPBGE - Android"
+#   0002  UPBGE-owned files (source/gameengine/GamePlayer, source/blenderplayer),
+#         including the new GamePlayer/android/ sources
 #
-# Idempotent: if a patch is already applied, `patch` will say "Reversed (or
-# previously applied) patch detected!" and this script will skip it. Use
-# --reset to wipe and re-clone the tree first.
+# Idempotent: an already applied patch is detected and skipped; one that does
+# not fit stops the script. Use --reset to discard local changes first.
 #
 # Usage:
 #   scripts/apply_patches.sh [--reset]
@@ -62,40 +64,14 @@ apply() {
     fi
 }
 
-apply "$PATCHES/0001-GHOST-Android-minimal-backend.patch" 1
-# Dependency patches only apply once the deps source trees are checked out by
-# deps/build.sh; record them so build.sh can find them.
-echo "[apply_patches] dependency patches (oidn, glog) are applied on the fly by deps/recipes/*.sh"
-
-# ----------------------------------------------------------------------------
-# 2. Copy new files that have no upstream counterpart
-# ----------------------------------------------------------------------------
-copy() {
-    local src="$1"
-    local dst="$2"
-    mkdir -p "$(dirname "$dst")"
-    cp -v "$src" "$dst"
-}
-
-# GHOST Android backend
-copy "$PATCHES/ghost_android/GHOST_SystemAndroid.hh" "$SRC/intern/ghost/intern/GHOST_SystemAndroid.hh"
-copy "$PATCHES/ghost_android/GHOST_SystemAndroid.cc" "$SRC/intern/ghost/intern/GHOST_SystemAndroid.cc"
-copy "$PATCHES/ghost_android/GHOST_WindowAndroid.hh"  "$SRC/intern/ghost/intern/GHOST_WindowAndroid.hh"
-copy "$PATCHES/ghost_android/GHOST_WindowAndroid.cc"  "$SRC/intern/ghost/intern/GHOST_WindowAndroid.cc"
-copy "$PATCHES/ghost_android/GHOST_AndroidMain.cc"    "$SRC/intern/ghost/intern/GHOST_AndroidMain.cc"
-
-# Player entrypoint wrapper + CMake fragment
-copy "$PATCHES/player_entrypoint/android_main_wrapper.cc" \
-     "$SRC/source/gameengine/blenderplayer/android_main_wrapper.cc"
-# Note: the CMakeLists.txt fragment is applied to the existing
-# source/gameengine/blenderplayer/CMakeLists.txt by the patch above.
-# To keep the change minimal, scripts/apply_patches.sh also renames main() →
-# player_main() in main.cc:
-MAIN_CC="$SRC/source/gameengine/blenderplayer/main.cc"
-if [ -f "$MAIN_CC" ] && ! grep -q "player_main" "$MAIN_CC"; then
-    echo "[apply_patches] renaming main() -> player_main() in $MAIN_CC"
-    # In-place: replace 'int main(int argc' with 'int player_main(int argc'
-    sed -i 's/^int main(int argc/int player_main(int argc/' "$MAIN_CC"
+shopt -s nullglob
+patches=("$PATCHES"/upbge/*.patch)
+if [ ${#patches[@]} -eq 0 ]; then
+    echo "[apply_patches] no patches in $PATCHES/upbge" >&2
+    exit 1
 fi
+for p in "${patches[@]}"; do
+    apply "$p" 1
+done
 
 echo "[apply_patches] done."

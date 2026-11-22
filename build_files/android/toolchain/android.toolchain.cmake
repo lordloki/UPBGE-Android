@@ -95,6 +95,9 @@ list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES ANDROID_NDK ANDROID_USE_LEGACY_
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 string(APPEND CMAKE_C_FLAGS " -fvisibility=hidden")
 string(APPEND CMAKE_CXX_FLAGS " -fvisibility=hidden -fvisibility-inlines-hidden")
+# Android 15+ devices may use 16 KB pages; NDK r26 still aligns ELF segments to
+# 4 KB, and such a library fails to load there. Costs nothing at run time.
+string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,-z,max-page-size=16384")
 
 # --- find_* restriction --------------------------------------------------------
 # Search only the deps prefix and the NDK sysroot; never the host /usr.

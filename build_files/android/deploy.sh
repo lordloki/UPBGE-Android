@@ -3,7 +3,7 @@
 # Install, run, capture logs and a screenshot from a connected device.
 set -euo pipefail
 PKG="org.upbge.player"
-ACTIVITY="$PKG/.MainActivity"
+ACTIVITY="$PKG/android.app.NativeActivity"
 ARCH="${ARCH:-arm64-v8a}"
 
 usage() {
@@ -37,16 +37,11 @@ done
 if [ -z "$APK" ]; then
     ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
     . "$ROOT/build_files/android/env.sh"
-    APK="$BUILD_BASE/apk/player_bundle_player-only_${ARCH}-latest.tar.gz"
+    APK="$BUILD_BASE/apk/upbge-player-player-only-${ARCH}-latest.apk"
     if [ ! -f "$APK" ]; then
         echo "no APK at $APK; pass --apk explicitly" >&2
         exit 1
     fi
-    # The bundle is a tar.gz; the unsigned APK is inside as build/*.apk.
-    tmp="$(mktemp -d)"
-    tar -xzf "$APK" -C "$tmp"
-    APK="$(find "$tmp" -name '*.apk' | head -1)"
-    [ -n "$APK" ] || { echo "no .apk inside bundle"; exit 1; }
 fi
 
 adb devices | grep -q 'device$' || { echo "no device attached"; exit 1; }
@@ -61,7 +56,8 @@ fi
 
 if [ "$LOG_SECS" -gt 0 ]; then
     echo "[deploy] capturing $LOG_SECS s of logcat"
-    timeout "$LOG_SECS" adb logcat -s upbge_ghost:V upbge_main:V upbge_player_wrap:V blender:V \
+    # The player sends stdout/stderr (CM_Message, Python print) to the UPBGE tag.
+    timeout "$LOG_SECS" adb logcat -s UPBGE:V DEBUG:V \
         > upbge.log 2>&1 || true
     echo "  -> upbge.log"
 fi

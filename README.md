@@ -20,7 +20,7 @@ UPBGE itself is at https://github.com/UPBGE/upbge (branch: `master`).
 | Output | Path | Contents |
 | --- | --- | --- |
 | Native binary | `BUILD_BASE/build_android_<cfg>_<arch>/bin/blenderplayer` | ELF shared object (PIE), loaded by the Android glue |
-| Player bundle | `BUILD_BASE/player_bundle_<cfg>_<arch>.tar.gz` | Binary + assets + APK skeleton, ready to wrap |
+| Player APK | `BUILD_BASE/apk/upbge-player-<cfg>-<arch>-latest.apk` | NativeActivity APK (debug key); the stage next to it is what the add-on wraps |
 | Host codegen | `BUILD_BASE/build_host_tools_<cfg>/bin/makesdna`, `makesrna`, ... | Built with the same feature set as the target |
 
 `<cfg>` is always `player-only`. `<arch>` is always `arm64-v8a`.
@@ -86,7 +86,7 @@ upbge_android_build/
 │   ├── setup_host.sh         # detect distro (Ubuntu/openSUSE/Fedora) + install host prereqs
 │   ├── install_android_sdk.sh # download SDK command-line tools + NDK r26d
 │   ├── fetch_upbge.sh        # clone UPBGE master
-│   ├── apply_patches.sh      # apply build_files/android/patches/* to UPBGE
+│   ├── apply_patches.sh      # apply build_files/android/patches/upbge/*.patch to UPBGE
 │   ├── package_player.sh     # bundle binary + assets + APK skeleton
 │   └── verify_build.py       # sanity-check the produced binary
 ├── .github/workflows/build-android.yml   # CI matrix (feature; arm64-v8a only)
