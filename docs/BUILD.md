@@ -159,10 +159,14 @@ This:
 1. Configures the same UPBGE tree for the host with the `player-only`
    feature cache and builds only `makesdna`, `makesrna`, `datatoc` and
    `shader_tool`, so the generated DNA/RNA/shader code matches the target.
-   This step needs what a desktop UPBGE build needs: Blender's precompiled
-   `lib/linux_x64` (`make update` in the UPBGE checkout) or the distribution
-   packages, including Python 3.13 (Tumbleweed: `python313-devel`) and
-   oneTBB. Packaging also uses that `python3.13` to precompile the standard
+   This step needs the libraries of a desktop UPBGE build. By default it uses
+   Blender's precompiled `lib/linux_x64` of the UPBGE checkout, which
+   `make setup` fetches with `build_files/utils/make_update.py --no-blender`
+   (git-lfs, a few GB, once; `make update` would also pull the patched
+   source tree).
+   `HOST_LIBDIR=/path/lib/linux_x64` reuses another checkout of the same UPBGE
+   revision; `HOST_LIBDIR=system` uses distribution packages instead
+   (Python 3.13, oneTBB, OpenImageIO, OpenColorIO, ...). Packaging also uses that `python3.13` to precompile the standard
    library into `python313.zip` (set `HOST_PYTHON` to pick another one).
 2. Configures the target build with the NDK toolchain, the same feature cache
    and `build_files/android/cmake/upbge_android_project.cmake`, which swaps in

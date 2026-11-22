@@ -206,7 +206,7 @@ def build_host_tools(env: Env, feature: str, verbose: bool, jobs: int) -> Path:
     The feature files set WITH_STRICT_BUILD_OPTIONS, so a feature whose
     library is missing on one side fails that configure instead of silently
     producing generators (makesrna) that disagree with the target. The host
-    uses its usual UPBGE dependencies (system packages or lib/linux_x64).
+    uses Blender's precompiled libraries (see HOST_LIBDIR below).
     Returns the directory holding the host binaries.
     """
     host_build = env.build_base / f"build_host_tools_{feature}"
@@ -230,7 +230,24 @@ def build_host_tools(env: Env, feature: str, verbose: bool, jobs: int) -> Path:
     if not feature_file.is_file():
         raise BuildError(f"feature file missing: {feature_file}")
 
-    if not cmake_cache.exists() or args_reconfigure:
+    # build.ninja, not CMakeCache.txt: a failed configure leaves a cache behind.
+    if not (host_build / "build.ninja").exists() or args_reconfigure:
+        # Host libraries: Blender's precompiled lib/linux_x64 (default), another
+        # checkout's copy (HOST_LIBDIR=/path), or distribution packages
+        # (HOST_LIBDIR=system). Strict mode needs every feature library.
+        host_arch = "arm64" if os.uname().machine in ("aarch64", "arm64") else "x64"
+        host_libdir = os.environ.get("HOST_LIBDIR", "") or \
+            str(env.upbge_source / "lib" / f"linux_{host_arch}")
+        if host_libdir == "system":
+            libdir_args = ["-DWITH_LIBS_PRECOMPILED=OFF"]
+        else:
+            if not Path(host_libdir).is_dir() or not any(Path(host_libdir).iterdir()):
+                raise BuildError(
+                    f"no precompiled host libraries in {host_libdir}. Either:\n"
+                    f"  cd {env.upbge_source} && python3 build_files/utils/make_update.py --no-blender\n"
+                    "  (needs git-lfs), or HOST_LIBDIR=<another checkout>/lib/linux_x64 of the\n"
+                    "  same UPBGE revision, or HOST_LIBDIR=system to use distribution packages")
+            libdir_args = ["-DWITH_LIBS_PRECOMPILED=ON", f"-DLIBDIR={host_libdir}"]
         host_build.mkdir(parents=True, exist_ok=True)
         cmd = [
             "cmake", "-G", "Ninja",
@@ -239,6 +256,10 @@ def build_host_tools(env: Env, feature: str, verbose: bool, jobs: int) -> Path:
             f"-DCMAKE_C_COMPILER={env.host_cc}",
             f"-DCMAKE_CXX_COMPILER={env.host_cxx}",
             "-DCMAKE_MAKE_PROGRAM=ninja",
+            # The code generators never need the CPU check (it also requires
+            # precompiled libraries).
+            "-DWITH_CPU_CHECK=OFF",
+            *libdir_args,
             str(env.upbge_source),
         ]
         run(cmd, cwd=host_build, verbose=verbose)
@@ -260,7 +281,7 @@ def configure_target(env: Env, arch: str, feature: str, dep_prefix: Path,
         info(f"--clean: removing {build_dir}")
         shutil.rmtree(build_dir)
 
-    if not cmake_cache.exists() or args_reconfigure or args_clean:
+    if not (build_dir / "build.ninja").exists() or args_reconfigure or args_clean:
         build_dir.mkdir(parents=True, exist_ok=True)
         cmd = [
             "cmake", "-G", "Ninja",

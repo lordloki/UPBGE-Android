@@ -44,6 +44,14 @@ else
     git -C "$SRC" submodule update --init --recursive --depth 1
 fi
 
+# Blender's precompiled host libraries (lib/linux_<arch>, git-lfs): build.py
+# configures the host code generators with them. Set UPBGE_SKIP_HOST_LIBS=1
+# when HOST_LIBDIR points at another checkout (or is "system").
+if [ "${UPBGE_SKIP_HOST_LIBS:-0}" != 1 ]; then
+    echo "[fetch_upbge] fetching precompiled host libraries"
+    ( cd "$SRC" && python3 build_files/utils/make_update.py --no-blender )
+fi
+
 # Record the exact commit so the player bundle can carry it.
 git -C "$SRC" rev-parse HEAD > "$SRC/.upbge_commit"
 git -C "$SRC" describe --tags --always >> "$SRC/.upbge_commit" || true

@@ -88,7 +88,7 @@ install_debian() {
         gcc-14 g++-14 \
         clang-17 clang-format-17 clang-tidy-17 \
         cmake ninja-build meson \
-        git curl wget unzip zip \
+        git git-lfs curl wget unzip zip \
         python3 python3-pip python3-venv \
         openjdk-17-jdk-headless \
         pkg-config autoconf automake libtool bison flex \
@@ -144,7 +144,7 @@ install_opensuse() {
         gcc14 gcc14-c++ \
         "${CLANG_PACKAGES[@]}" \
         cmake ninja meson \
-        git curl wget unzip zip \
+        git git-lfs curl wget unzip zip \
         python3 python3-pip \
         java-17-openjdk-devel \
         pkgconf autoconf automake libtool bison flex \
@@ -179,7 +179,7 @@ install_fedora() {
         @development-tools gcc gcc-c++ \
         clang clang-devel \
         cmake ninja-build meson \
-        git curl wget unzip zip \
+        git git-lfs curl wget unzip zip \
         python3 python3-pip \
         java-17-openjdk-devel \
         pkgconf-pkg-config autoconf automake libtool bison flex \
