@@ -133,8 +133,12 @@ step() {
 }
 
 # A stamp records the hash of everything that defines how a recipe is built.
+# The NDK revision is part of it: every archive is linked into one .so with
+# c++_static, so objects built against two libc++ versions must never mix.
+NDK_PROPERTIES="$ANDROID_NDK_HOME/source.properties"
+[ -f "$NDK_PROPERTIES" ] || { echo "not an NDK (no source.properties): $ANDROID_NDK_HOME" >&2; exit 1; }
 recipe_hash() {
-    cat "$RECIPES_DIR/$1.sh" "$RECIPES_DIR/_helpers.sh" "$DEPS_TOOLCHAIN" \
+    cat "$RECIPES_DIR/$1.sh" "$RECIPES_DIR/_helpers.sh" "$DEPS_TOOLCHAIN" "$NDK_PROPERTIES" \
         | sha256sum | cut -d' ' -f1
 }
 
@@ -237,6 +241,11 @@ stray_so="$(find "$DEPS_PREFIX/lib" -maxdepth 1 -name '*.so*' ! -name 'libvulkan
 if [ -n "$stray_so" ]; then
     log "WARNING: shared libraries in the deps prefix (would be linked dynamically):"
     printf '%s\n' "$stray_so" | sed 's/^/  /' | tee -a "$DEPS_LOG" >&2
+fi
+
+# build.py refuses a prefix built with another NDK (see check_dep_prefix).
+if [ -z "$ONLY" ]; then
+    cp "$NDK_PROPERTIES" "$DEPS_PREFIX/ndk.source.properties"
 fi
 
 log ""

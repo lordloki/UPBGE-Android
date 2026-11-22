@@ -9,11 +9,11 @@
 #       does NOT have gcc-14 without a PPA).
 #
 # The Android SDK + NDK are installed by `scripts/install_android_sdk.sh`,
-# which downloads the NDK r26d as a direct .zip from
-#   https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
-# instead of via `sdkmanager "ndk;r26d"` (recent cmdline-tools reject the
+# which downloads the NDK r27d as a direct .zip from
+#   https://dl.google.com/android/repository/android-ndk-r27d-linux.zip
+# instead of via `sdkmanager "ndk;r27d"` (recent cmdline-tools reject the
 # short `rXX` alias and require the exact numeric package name, e.g.
-# `ndk;26.3.11579264`, which changes with every NDK patch release).
+# `ndk;27.3.13750724`, which changes with every NDK patch release).
 #
 # The dependency prefix is cached per commit hash of every recipe file, so
 # subsequent runs take ~30 min instead of hours.
@@ -39,15 +39,15 @@ jobs:
       - name: Install host prerequisites (gcc-14, clang-17, cmake, ninja, JDK 17)
         run: bash scripts/setup_host.sh
 
-      - name: Install Android SDK + NDK r26d
+      - name: Install Android SDK + NDK r27d
         run: bash scripts/install_android_sdk.sh
 
       - name: Configure environment
         run: |
           echo "ANDROID_HOME=$HOME/Android/Sdk" >> $GITHUB_ENV
-          echo "ANDROID_NDK_VERSION=r26d" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$HOME/Android/Sdk/ndk/r26d" >> $GITHUB_ENV
-          echo "ANDROID_NDK_ROOT=$HOME/Android/Sdk/ndk/r26d" >> $GITHUB_ENV
+          echo "ANDROID_NDK_VERSION=r27d" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$HOME/Android/Sdk/ndk/r27d" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=$HOME/Android/Sdk/ndk/r27d" >> $GITHUB_ENV
           echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
           echo "BUILD_BASE=$BUILD_BASE" >> $GITHUB_ENV
           echo "UPBGE_SOURCE=$UPBGE_SOURCE" >> $GITHUB_ENV

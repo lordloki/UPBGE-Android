@@ -112,7 +112,7 @@ class Env:
 
 def resolve_env(args: argparse.Namespace) -> Env:
     android_home = Path(os.environ.get("ANDROID_HOME", ""))
-    ndk_version = os.environ.get("ANDROID_NDK_VERSION", "r26d")
+    ndk_version = os.environ.get("ANDROID_NDK_VERSION", "r27d")
     ndk_home = Path(os.environ.get("ANDROID_NDK_HOME",
                                     android_home / "ndk" / ndk_version))
     java_home = os.environ.get("JAVA_HOME", "")
@@ -189,6 +189,14 @@ def check_dep_prefix(env: Env, arch: str) -> Path:
             f"dependency prefix not found: {prefix}\n"
             f"  Run: build_files/android/deps/build.sh --arch {arch}\n"
             f"  (one-time cost of a few hours)")
+    # Every archive is linked into one .so with c++_static: a prefix built with
+    # another NDK (another libc++) must be rebuilt, not mixed.
+    built_with = prefix / "ndk.source.properties"
+    current = env.ndk_home / "source.properties"
+    if not built_with.is_file() or built_with.read_bytes() != current.read_bytes():
+        raise BuildError(
+            f"{prefix} was not built with the NDK in {env.ndk_home}.\n"
+            f"  Rebuild it: rm -rf {prefix} && make deps ARCH={arch}")
     # Heuristic: zlib should be there
     if not (prefix / "lib" / "libz.a").exists() and \
        not (prefix / "lib" / "libz.so").exists():
@@ -284,6 +292,15 @@ def configure_target(env: Env, arch: str, feature: str, dep_prefix: Path,
     if args_clean and build_dir.exists():
         info(f"--clean: removing {build_dir}")
         shutil.rmtree(build_dir)
+    elif cmake_cache.is_file():
+        # The compilers and the sysroot come from the NDK: CMake cannot switch
+        # them in an existing cache.
+        cached_ndk = next((line.split("=", 1)[1] for line in
+                           cmake_cache.read_text(errors="replace").splitlines()
+                           if line.startswith("ANDROID_NDK:") and "=" in line), "")
+        if cached_ndk and Path(cached_ndk).resolve() != env.ndk_home.resolve():
+            info(f"NDK changed ({cached_ndk}); removing {build_dir}")
+            shutil.rmtree(build_dir)
 
     if not (build_dir / "build.ninja").exists() or args_reconfigure or args_clean:
         build_dir.mkdir(parents=True, exist_ok=True)

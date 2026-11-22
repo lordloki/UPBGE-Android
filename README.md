@@ -37,10 +37,10 @@ make setup-host
 #    ↑ installs host build tools; openSUSE Tumbleweed uses Clang 19.
 #      prints the JAVA_HOME / ANDROID_HOME / PATH exports to add to ~/.bashrc.
 
-# 3. Install Android SDK + NDK r26d
+# 3. Install Android SDK + NDK r27d
 make setup-sdk
 #    ↑ downloads commandlinetools, accepts licenses, installs platform-tools,
-#      platforms;android-34, build-tools;34.0.0, ndk;r26d.
+#      platforms;android-34, build-tools;34.0.0, ndk;r27d.
 
 # 4. (After adding the exports to ~/.bashrc and `source ~/.bashrc`)
 
@@ -84,7 +84,7 @@ upbge_android_build/
 │   └── deploy.sh             # install + run on a device
 ├── scripts/
 │   ├── setup_host.sh         # detect distro (Ubuntu/openSUSE/Fedora) + install host prereqs
-│   ├── install_android_sdk.sh # download SDK command-line tools + NDK r26d
+│   ├── install_android_sdk.sh # download SDK command-line tools + NDK r27d
 │   ├── fetch_upbge.sh        # clone UPBGE master
 │   ├── apply_patches.sh      # apply build_files/android/patches/upbge/*.patch to UPBGE
 │   ├── package_player.sh     # bundle binary + assets + APK skeleton

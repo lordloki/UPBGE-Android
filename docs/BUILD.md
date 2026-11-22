@@ -11,7 +11,7 @@ configuring the target interpreter. If the check fails, inspect the gettext reci
 and its build log before retrying Python.
 
 The `clang-17` linker shown in this error is the compiler driver supplied by NDK
-r26d for the Android target. It is separate from the Clang 19 compiler used on
+r27d for the Android target. It is separate from the Clang 19 compiler used on
 the openSUSE host.
 
 ## 1. Clone this system
@@ -64,7 +64,7 @@ Homebrew's `clang-17`, `cmake`, `ninja`, `openjdk@17`, `python@3.11` by
 hand. Windows: use WSL2 (Ubuntu inside Windows) and run `make setup-host`
 there — keep the checkout inside the WSL filesystem, not `/mnt/c/...`.
 
-## 3. Android SDK + NDK r26d
+## 3. Android SDK + NDK r27d
 
 Still from inside the repo, run:
 
@@ -80,7 +80,7 @@ command-line tools, accepts the SDK licenses, and installs:
 - `platform-tools` (adb)
 - `platforms;android-34`
 - `build-tools;34.0.0`
-- `ndk;r26d`
+- `ndk;r27d`
 
 It is idempotent — re-run only installs what is missing.
 
@@ -88,7 +88,7 @@ After it finishes, add these to `~/.bashrc` (the script prints them too):
 
 ```bash
 export ANDROID_HOME=$HOME/Android/Sdk
-export ANDROID_NDK_VERSION=r26d
+export ANDROID_NDK_VERSION=r27d
 export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION
 export ANDROID_NDK_ROOT=$ANDROID_NDK_HOME
 export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64   # Ubuntu/Debian
