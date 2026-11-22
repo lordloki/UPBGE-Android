@@ -41,6 +41,27 @@ endif()
 
 set(UPBGE_ANDROID_HOST_TOOLS makesdna makesrna datatoc shader_tool msgfmt)
 
+# The host tools run against the host tree's precompiled libraries (its LIBDIR,
+# unset for HOST_LIBDIR=system). Each target output becomes a wrapper script
+# that sets LD_LIBRARY_PATH (see host_tool_wrapper.sh.in for why RPATH fails).
+get_filename_component(_upbge_host_build "${UPBGE_ANDROID_HOST_TOOLS_DIR}" DIRECTORY)
+load_cache("${_upbge_host_build}" READ_WITH_PREFIX _upbge_host_ LIBDIR)
+set(_upbge_host_lib_dirs)
+if(_upbge_host_LIBDIR)
+  file(GLOB _upbge_host_libs LIST_DIRECTORIES false "${_upbge_host_LIBDIR}/*/lib/*.so*")
+  foreach(_lib ${_upbge_host_libs})
+    get_filename_component(_dir "${_lib}" DIRECTORY)
+    list(APPEND _upbge_host_lib_dirs "${_dir}")
+  endforeach()
+  list(REMOVE_DUPLICATES _upbge_host_lib_dirs)
+  list(SORT _upbge_host_lib_dirs)
+endif()
+list(JOIN _upbge_host_lib_dirs ":" UPBGE_ANDROID_HOST_LIBRARY_PATH)
+unset(_upbge_host_build)
+unset(_upbge_host_LIBDIR)
+unset(_upbge_host_libs)
+unset(_upbge_host_lib_dirs)
+
 function(add_executable name)
   _add_executable(${name} ${ARGN})
   if(name IN_LIST UPBGE_ANDROID_HOST_TOOLS)
@@ -48,9 +69,22 @@ function(add_executable name)
     if(NOT EXISTS "${_host_tool}")
       message(FATAL_ERROR "host tool missing: ${_host_tool} (build it in the host tree first)")
     endif()
+    set(UPBGE_TOOL "${name}")
+    set(UPBGE_HOST_TOOL "${_host_tool}")
+    set(UPBGE_HOST_LIBRARY_PATH "${UPBGE_ANDROID_HOST_LIBRARY_PATH}")
+    set(_wrapper "${CMAKE_BINARY_DIR}/android_host_tools/${name}")
+    # Rewritten only when its content changes, so it does not force relinks.
+    configure_file("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/host_tool_wrapper.sh.in" "${_wrapper}"
+      @ONLY
+      FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE
+                       WORLD_READ WORLD_EXECUTE
+    )
+    # POST_BUILD only runs on relink: relink when the host tool or the wrapper
+    # changes, which also re-runs every generator that depends on the target.
+    set_property(TARGET ${name} APPEND PROPERTY LINK_DEPENDS "${_host_tool}" "${_wrapper}")
     add_custom_command(
       TARGET ${name} POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy "${_host_tool}" "$<TARGET_FILE:${name}>"
+      COMMAND ${CMAKE_COMMAND} -E copy "${_wrapper}" "$<TARGET_FILE:${name}>"
       COMMENT "Using host ${name}"
       VERBATIM
     )
