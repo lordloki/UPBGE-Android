@@ -59,8 +59,6 @@ set(WITH_GMP                      OFF CACHE BOOL "" FORCE)
 set(WITH_JOLT                     OFF CACHE BOOL "" FORCE)
 
 # ---- Threading ------------------------------------------------------------------
-# No TBB in the deps prefix. Without it parallel ranges (threading::parallel_for,
-# BLI_task_parallel_range: mesh extraction, depsgraph evaluation) run serially:
-# a known limitation until a oneTBB recipe exists.
-set(WITH_TBB                      OFF CACHE BOOL "" FORCE)
+# Static oneTBB (deps/recipes/tbb.sh): parallel ranges and task pools.
+set(WITH_TBB                      ON  CACHE BOOL "" FORCE)
 set(WITH_TBB_MALLOC_PROXY         OFF CACHE BOOL "" FORCE)

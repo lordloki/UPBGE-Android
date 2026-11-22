@@ -90,11 +90,12 @@ def verify(stage: Path, arch: str, verbose: bool) -> int:
         if absent:
             problems.append(f"files.txt lists {len(absent)} missing files, e.g. {absent[0]}")
         if verbose: print(f"  assets listed: {len(listed)}")
-        for required in ("upbge/datafiles/colormanagement/config.ocio",
-                         "upbge/python/lib/python3.13/os.py",
-                         "game.blend"):
+        for required in ("upbge/datafiles/colormanagement/config.ocio", "game.blend"):
             if required not in listed:
                 problems.append(f"files.txt does not list {required}")
+        if not ({"upbge/python/lib/python313.zip",
+                 "upbge/python/lib/python3.13/os.py"} & set(listed)):
+            problems.append("files.txt lists no Python standard library")
 
     # --- manifest ------------------------------------------------------------
     manifest = stage / "AndroidManifest.xml"

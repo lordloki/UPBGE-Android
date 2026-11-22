@@ -129,7 +129,9 @@ function(_upbge_android_link_closure)
   list(REMOVE_DUPLICATES _archives)
   list(LENGTH _archives _count)
   message(STATUS "[upbge-android] static link closure: ${_count} archives")
-  target_link_libraries(blenderplayer PRIVATE ${_archives})
+  # NDK system libraries the static archives need and pkg-config does not
+  # report: OpenSLES for OpenAL's audio backend.
+  target_link_libraries(blenderplayer PRIVATE ${_archives} OpenSLES)
 endfunction()
 # Runs once the whole tree is configured, when blenderplayer exists.
 cmake_language(DEFER CALL _upbge_android_link_closure)

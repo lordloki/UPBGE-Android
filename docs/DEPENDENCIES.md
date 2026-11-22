@@ -5,7 +5,7 @@ The dependency prefix `$BUILD_BASE/lib/android_<arch>/` is built by
 from `deps/recipes/*.sh`. This page documents the list and the rationale for
 each entry.
 
-## Recipes (37 libraries)
+## Recipes (38 libraries)
 
 These are the libraries the `blenderplayer` runtime needs to boot a
 `.blend` and run a game. The list is fixed (no feature-set variants).
@@ -38,6 +38,7 @@ included; versions of the libraries added for it follow
 ### Fonts / text
 | Lib | Why |
 | --- | --- |
+| tbb | oneTBB, static: parallel ranges and task pools (`WITH_TBB`) |
 | brotli | WOFF2 decoding for FreeType (Blender requires it; merged into `libfreetype.a`) |
 | freetype | Font rendering (with Brotli, like Blender's own build) |
 

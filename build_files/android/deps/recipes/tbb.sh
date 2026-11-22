@@ -1,19 +1,29 @@
 #!/usr/bin/env bash
 # deps/recipes/tbb.sh
 #
-# Source: https://github.com/oneapi-src/oneTBB/archive/refs/tags/v2021.11.0.tar.gz
-# Reference: Wanderson's build_files/android/deps/build.sh
-# 
-#
-# STATUS: stub. The skeleton below will fetch and call cmake_android; you
-#         likely need to add feature toggles, patch steps, or post-install
-#         fixes. See the README in this directory for the contract.
+# oneTBB: Blender's parallel_for / task pools are serial without it.
+# Static, unlike Blender's own (shared) build: a shared libtbb.so would carry
+# a second copy of libc++_static, and the APK would have to ship it.
 recipe_tbb() {
-    local src="$SRC_DIR/tbb"
-    if [ ! -d "$src" ]; then
-        download_and_extract "https://github.com/oneapi-src/oneTBB/archive/refs/tags/v2021.11.0.tar.gz" "$src"
-    fi
-    # If a patch exists, apply it now:
-    #   patch -d "$src" -p1 < "$UPBGE_ANDROID_ROOT/build_files/android/patches/tbb_android.diff"
-    cmake_android "$src" "$BUILD_DIR_BASE/tbb-$ARCH"
+    local ver="v2022.3.0"  # UPBGE versions.cmake (TBB_VERSION)
+    local src="$SRC_DIR/oneTBB-$ver"
+    download_and_extract \
+        "https://github.com/uxlfoundation/oneTBB/archive/refs/tags/$ver.tar.gz" \
+        "$src"
+    # TBB_STRICT turns warnings into errors (new NDK clang versions add some);
+    # IPO would leave LLVM bitcode in the archive; tbbmalloc is unused
+    # (WITH_TBB_MALLOC_PROXY is OFF); no hwloc on Android.
+    cmake_android "$src" "$BUILD_DIR_BASE/tbb-$ARCH" \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DTBB_TEST=OFF \
+        -DTBB_EXAMPLES=OFF \
+        -DTBB_STRICT=OFF \
+        -DTBB_ENABLE_IPO=OFF \
+        -DTBBMALLOC_BUILD=OFF \
+        -DTBBMALLOC_PROXY_BUILD=OFF \
+        -DTBB_DISABLE_HWLOC_AUTOMATIC_SEARCH=ON
+    [ -f "$DEPS_PREFIX/lib/libtbb.a" ] || {
+        echo "oneTBB did not install libtbb.a" >&2
+        return 1
+    }
 }

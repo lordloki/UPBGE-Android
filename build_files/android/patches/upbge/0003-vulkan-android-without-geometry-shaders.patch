@@ -1,0 +1,174 @@
+Vulkan on Android: run without geometry shaders (Mali).
+
+Blender-owned files; every hunk is enclosed in "UPBGE - Android" comments.
+
+No shipped shader has a geometry stage: the Vulkan backend only injects one
+to emulate a missing extension. Without geometry shader support:
+- GHOST and the GPU backend no longer require the feature on Android;
+- multi-viewport is off unless VK_EXT_shader_viewport_index_layer exists, so
+  EEVEE renders shadow tiles into the largest viewport (existing fallback);
+- materials using barycentrics (Wireframe, Geometry > Parametric) compile
+  without them unless VK_KHR_fragment_shader_barycentric exists
+  (new GPU_shader_barycentric_support());
+- the Gaussian splat shader declares the viewport output under the same
+  condition as the mesh shader.
+
+Applies after 0001 and 0002.
+
+diff --git a/intern/ghost/intern/GHOST_ContextVK.cc b/intern/ghost/intern/GHOST_ContextVK.cc
+index 8034d26c..18572f2f 100644
+--- a/intern/ghost/intern/GHOST_ContextVK.cc
++++ b/intern/ghost/intern/GHOST_ContextVK.cc
+@@ -449,9 +449,12 @@ struct GHOST_InstanceVK {
+       }
+ 
+       if (
+-#ifndef __APPLE__
++/* UPBGE - Android: geometry shaders are optional (Mali has none); the GPU backend only needs
++ * them as a fallback it can avoid, see VKBackend::capabilities_init. */
++#if !defined(__APPLE__) && !defined(__ANDROID__)
+           !device_vk.features.features.geometryShader ||
+ #endif
++/* UPBGE - Android */
+           !device_vk.features.features.fragmentStoresAndAtomics ||
+           !device_vk.features.features.imageCubeArray ||
+           !device_vk.features.features.dualSrcBlend || !device_vk.features.features.imageCubeArray)
+@@ -633,6 +636,11 @@ struct GHOST_InstanceVK {
+ #ifndef __APPLE__
+     device_features.geometryShader = VK_TRUE;
+ #endif
++    /* UPBGE - Android: enable only when present, see the device selection above. */
++#ifdef __ANDROID__
++    device_features.geometryShader = device.features.features.geometryShader;
++#endif
++    /* UPBGE - Android */
+     device_features.vertexPipelineStoresAndAtomics =
+         device.features.features.vertexPipelineStoresAndAtomics;
+     device_features.multiViewport = device.features.features.multiViewport;
+diff --git a/source/blender/draw/engines/eevee/eevee_shader.cc b/source/blender/draw/engines/eevee/eevee_shader.cc
+index 7b52346b..c83cfbee 100644
+--- a/source/blender/draw/engines/eevee/eevee_shader.cc
++++ b/source/blender/draw/engines/eevee/eevee_shader.cc
+@@ -1191,6 +1191,9 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
+   /* Enabling barycentric coordinate only works for triangle primitives. */
+   bool use_barycentric = GPU_material_flag_get(gpumat, GPU_MATFLAG_BARYCENTRIC) &&
+                          geometry_type == MAT_GEOM_MESH;
++  /* UPBGE - Android: without geometry shaders the Vulkan fallback cannot be injected. */
++  use_barycentric = use_barycentric && GPU_shader_barycentric_support();
++  /* UPBGE - Android */
+   info.compilation_constant(gpu::shader::Type::bool_t, "use_barycentric", use_barycentric);
+ 
+   /* Allow to use Reverse-Z on OpenGL. Does nothing in other backend. */
+diff --git a/source/blender/draw/engines/eevee/shaders/eevee_geom_gsplat.bsl.hh b/source/blender/draw/engines/eevee/shaders/eevee_geom_gsplat.bsl.hh
+index 1b39a056..656cbe96 100644
+--- a/source/blender/draw/engines/eevee/shaders/eevee_geom_gsplat.bsl.hh
++++ b/source/blender/draw/engines/eevee/shaders/eevee_geom_gsplat.bsl.hh
+@@ -37,7 +37,8 @@ namespace eevee {
+     [[vertex_id]] const int vert_id,
+     [[position]] float4 &out_position,
+     /* Note: Removed manually if not needed. Otherwise, can generate geometry shader fallback. */
+-    [[viewport_index]] int &out_viewport)
++    /* UPBGE - Android: same condition as the mesh shader, no geometry stage without GS. */
++    [[viewport_index, condition(is_shadow_pipe &&use_multi_viewport)]] int &out_viewport)
+ {
+   draw::ID id = res_id.get(inst_index);
+   uint view_id = 0;
+@@ -53,7 +54,11 @@ namespace eevee {
+ 
+   if (pipe.is_shadow_pipe) [[static_branch]] {
+     shadow_iface.shadow_view_id = int(view_id);
+-    out_viewport = int(shadow.render_view_buf[view_id].viewport_index);
++    /* UPBGE - Android */
++    if (pipe.use_multi_viewport) [[static_branch]] {
++      out_viewport = int(shadow.render_view_buf[view_id].viewport_index);
++    }
++    /* UPBGE - Android */
+   }
+ 
+   init_interface(interp, id.raw_id);
+diff --git a/source/blender/gpu/GPU_capabilities.hh b/source/blender/gpu/GPU_capabilities.hh
+index a167af5f..d3af9429 100644
+--- a/source/blender/gpu/GPU_capabilities.hh
++++ b/source/blender/gpu/GPU_capabilities.hh
+@@ -64,6 +64,9 @@ bool GPU_use_hq_normals_workaround();
+ bool GPU_frontbuffer_read_workaround();
+ 
+ bool GPU_geometry_shader_support();
++/* UPBGE - Android */
++bool GPU_shader_barycentric_support();
++/* UPBGE - Android */
+ bool GPU_hdr_support();
+ bool GPU_multi_viewport_support();
+ bool GPU_stencil_export_support();
+diff --git a/source/blender/gpu/intern/gpu_capabilities.cc b/source/blender/gpu/intern/gpu_capabilities.cc
+index f5c6991f..6fe57d33 100644
+--- a/source/blender/gpu/intern/gpu_capabilities.cc
++++ b/source/blender/gpu/intern/gpu_capabilities.cc
+@@ -164,6 +164,13 @@ bool GPU_geometry_shader_support()
+   return GCaps.geometry_shader_support;
+ }
+ 
++/* UPBGE - Android */
++bool GPU_shader_barycentric_support()
++{
++  return GCaps.shader_barycentric_support;
++}
++/* UPBGE - Android */
++
+ bool GPU_hdr_support()
+ {
+   return GCaps.hdr_viewport_support;
+diff --git a/source/blender/gpu/intern/gpu_capabilities_private.hh b/source/blender/gpu/intern/gpu_capabilities_private.hh
+index be01f4b1..cdf7bb20 100644
+--- a/source/blender/gpu/intern/gpu_capabilities_private.hh
++++ b/source/blender/gpu/intern/gpu_capabilities_private.hh
+@@ -44,6 +44,9 @@ struct GPUCapabilities {
+ 
+   bool mem_stats_support = false;
+   bool geometry_shader_support = false;
++  /* UPBGE - Android: barycentric coordinates in fragment shaders, natively or emulated. */
++  bool shader_barycentric_support = true;
++  /* UPBGE - Android */
+   bool hdr_viewport_support = false;
+   bool multi_viewport_support = false;
+   bool stencil_export_support = false;
+diff --git a/source/blender/gpu/vulkan/vk_backend.cc b/source/blender/gpu/vulkan/vk_backend.cc
+index f75c8437..4d1a0488 100644
+--- a/source/blender/gpu/vulkan/vk_backend.cc
++++ b/source/blender/gpu/vulkan/vk_backend.cc
+@@ -183,7 +183,9 @@ static Vector<StringRefNull> missing_capabilities_get(VkPhysicalDevice vk_physic
+   VkPhysicalDeviceFeatures2 features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+   vkGetPhysicalDeviceFeatures2(vk_physical_device, &features);
+ 
+-#ifndef __APPLE__
++/* UPBGE - Android: optional there, see #VKBackend::capabilities_init. */
++#if !defined(__APPLE__) && !defined(__ANDROID__)
++  /* UPBGE - Android */
+   /* Features currently not supported by Mesa KosmicKrisp. */
+   if (features.features.geometryShader == VK_FALSE) {
+     missing_capabilities.append("geometry shaders");
+@@ -951,6 +953,24 @@ void VKBackend::capabilities_init(VKDevice &device)
+ 
+   detect_workarounds(device);
+ 
++  /* UPBGE - Android: no geometry shaders (Mali). No shipped shader has a geometry stage; the
++   * backend only injects one to emulate a missing extension. Avoid those cases instead:
++   * - viewport index output (EEVEE shadows): disable multi-viewport, EEVEE then renders every
++   *   shadow tile into the largest viewport (more fragment work, same result);
++   * - barycentric coordinates (Wireframe node, Geometry > Parametric): EEVEE compiles those
++   *   materials without them. */
++#ifdef __ANDROID__
++  GCaps.geometry_shader_support = device.physical_device_features_get().geometryShader;
++  if (!GCaps.geometry_shader_support) {
++    const VKExtensions &extensions = device.extensions_get();
++    if (!extensions.shader_viewport_index_layer) {
++      GCaps.multi_viewport_support = false;
++    }
++    GCaps.shader_barycentric_support = extensions.fragment_shader_barycentric;
++  }
++#endif
++  /* UPBGE - Android */
++
+   device.resources.use_dynamic_rendering_local_read =
+       device.extensions_get().dynamic_rendering_local_read;
+ }

@@ -184,6 +184,7 @@ RECIPES=(
     openimageio
     eigen
     sse2neon
+    tbb             # parallel_for, task pools (WITH_TBB)
     epoxy
     shaderc
     vulkan_headers

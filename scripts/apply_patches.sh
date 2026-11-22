@@ -7,6 +7,7 @@
 #         marked "UPBGE - Android"
 #   0002  UPBGE-owned files (source/gameengine/GamePlayer, source/blenderplayer),
 #         including the new GamePlayer/android/ sources
+#   0003  Blender-owned files: geometry shaders optional (Mali), marked as 0001
 #
 # Idempotent: an already applied patch is detected and skipped; one that does
 # not fit stops the script. Use --reset to discard local changes first.

@@ -132,7 +132,7 @@ bash scripts/fetch_upbge.sh --reset
 make deps ARCH=arm64-v8a
 ```
 
-This builds the 37 libraries listed in `docs/DEPENDENCIES.md` into
+This builds the 38 libraries listed in `docs/DEPENDENCIES.md` into
 `~/upbge_android_build_base/lib/android_<arch>/`.
 
 Logs land in `~/upbge_android_build_base/logs/deps_<arch>.log`; on failure the
@@ -161,7 +161,9 @@ This:
    `shader_tool`, so the generated DNA/RNA/shader code matches the target.
    This step needs what a desktop UPBGE build needs: Blender's precompiled
    `lib/linux_x64` (`make update` in the UPBGE checkout) or the distribution
-   packages, including Python 3.13 (Tumbleweed: `python313-devel`).
+   packages, including Python 3.13 (Tumbleweed: `python313-devel`) and
+   oneTBB. Packaging also uses that `python3.13` to precompile the standard
+   library into `python313.zip` (set `HOST_PYTHON` to pick another one).
 2. Configures the target build with the NDK toolchain, the same feature cache
    and `build_files/android/cmake/upbge_android_project.cmake`, which swaps in
    the host generators and completes the static link.
@@ -186,7 +188,8 @@ This produces `~/upbge_android_build_base/android_apk_stage_player-only_arm64-v8
 
 - `lib/arm64-v8a/libupbgeplayer.so` (stripped)
 - `assets/game.blend` (`--blend`, or a placeholder the add-on replaces)
-- `assets/upbge/` resources and `assets/upbge/files.txt`, the extraction
+- `assets/upbge/` resources (the Python stdlib as a precompiled, uncompressed
+  `python/lib/python313.zip`) and `assets/upbge/files.txt`, the extraction
   manifest (stamp + file list)
 - `AndroidManifest.xml`, `res/`, `PACKAGE_README.txt`, `upbge_commit.txt`
 - `upbge-player-player-only-arm64-v8a.apk`, built with `aapt2`, `zipalign`

@@ -19,7 +19,8 @@
 #   assets/game.blend
 #   assets/upbge/files.txt               extraction manifest, see below
 #   assets/upbge/{datafiles,scripts,python}/
-#                                        BLENDER_SYSTEM_RESOURCES on the device
+#                                        BLENDER_SYSTEM_RESOURCES on the device;
+#                                        the stdlib is python/lib/python313.zip
 #   upbge-player-<feature>-<arch>.apk    aligned, signed with the debug key
 #
 # files.txt: one stamp line, then every asset path the player copies to
@@ -112,8 +113,28 @@ for dir in modules startup bge; do
 done
 # Static interpreter: the stdlib is pure Python (no lib-dynload). Drop what a
 # game never imports, plus config-3.x (the static libpython, ~50 MB).
-copy_tree "$PYLIB" "$RES/python/lib/python$PYVER" \
+STDLIB_TMP="$STAGE/build/python$PYVER"
+copy_tree "$PYLIB" "$STDLIB_TMP" \
     "./config-$PYVER*" ./test ./idlelib ./tkinter ./turtledemo ./ensurepip ./lib2to3
+# Ship it as lib/python313.zip, which CPython always puts first on sys.path:
+# one asset instead of ~550 files to extract. zipimport cannot write
+# __pycache__, so the bytecode is compiled here (unchecked-hash: no mtime
+# check against the sources) by a host Python of the same minor version, and
+# the zip is stored uncompressed (no inflate per import; the APK compresses it).
+# The .py files stay for tracebacks.
+PYZIP="$RES/python/lib/python${PYVER/./}.zip"
+HOST_PYTHON="${HOST_PYTHON:-$(command -v "python$PYVER" || true)}"
+if [ -n "$HOST_PYTHON" ] && command -v zip >/dev/null 2>&1 &&
+   [ "$("$HOST_PYTHON" -c 'import sys; print("%d.%d" % sys.version_info[:2])')" = "$PYVER" ]; then
+    "$HOST_PYTHON" -m compileall -q -b -j0 --invalidation-mode unchecked-hash \
+        "$STDLIB_TMP" >/dev/null
+    mkdir -p "$(dirname "$PYZIP")"
+    ( cd "$STDLIB_TMP" && zip -q -0 -r -X "$PYZIP" . )
+else
+    log "WARNING: no host python$PYVER or zip: shipping the stdlib as files"
+    mkdir -p "$RES/python/lib"
+    mv "$STDLIB_TMP" "$RES/python/lib/python$PYVER"
+fi
 
 # --- Game ------------------------------------------------------------------------
 if [ -n "$BLEND" ]; then

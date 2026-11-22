@@ -48,6 +48,7 @@ DEVICE (Android 12+, arm64, Vulkan 1.2)
 | `build_files/android/features/player_only.cmake` | Drops Cycles, OIDN, USD, simulation, importers and everything the deps prefix does not build. |
 | `build_files/android/patches/upbge/0001-*.patch` | Blender-owned files (GHOST Vulkan context, `gpu/vulkan`), every hunk marked `UPBGE - Android`: Android surface and zero-cost pre-rotation. |
 | `build_files/android/patches/upbge/0002-*.patch` | UPBGE-owned files: `GamePlayer/android/` backend and entry point, `GPG_ghost.cpp`, player CMake. |
+| `build_files/android/patches/upbge/0003-*.patch` | Blender-owned files, marked like 0001: geometry shaders optional (Mali). Multi-viewport and barycentrics fall back when the matching extensions are missing. |
 | `build_files/android/patches/oidn_android.diff`, `glog_android.diff` | Reference patches Wanderson carries for the `full` feature set. Not applied in current recipes. |
 | `build_files/android/apk/` | `AndroidManifest.xml` (NativeActivity, `hasCode=false`) and `strings.xml`. |
 | `build_files/android/debug.sh` | Read / write `blender_args.txt`, follow logcat, dump crash buffer. |
@@ -93,6 +94,16 @@ copy becomes a compute pass that writes the frame rotated
 (`vk_backbuffer_rotate`). SurfaceFlinger then has no rotation pass to do.
 When the surface cannot be pre-rotated (no STORAGE usage, format other than
 RGBA8, HDR) the swapchain stays IDENTITY and the compositor rotates.
+
+## GPUs without geometry shaders
+
+No UPBGE shader has a geometry stage; the Vulkan backend only injects one to
+emulate `VK_EXT_shader_viewport_index_layer` (EEVEE shadows) or
+`VK_KHR_fragment_shader_barycentric` (Wireframe node, Geometry > Parametric).
+On a device without geometry shaders (Mali), patch 0003 turns off
+multi-viewport (EEVEE renders every shadow tile into the largest viewport) and
+compiles barycentric materials without barycentrics, unless the extensions
+are present.
 
 ## Build directory layout
 
