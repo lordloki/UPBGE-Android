@@ -212,6 +212,23 @@ def build_host_tools(env: Env, feature: str, verbose: bool, jobs: int) -> Path:
     host_build = env.build_base / f"build_host_tools_{feature}"
     cmake_cache = host_build / "CMakeCache.txt"
 
+    # Host libraries: Blender's precompiled lib/linux_x64 (default), another
+    # checkout's copy (HOST_LIBDIR=/path), or distribution packages
+    # (HOST_LIBDIR=system). Strict mode needs every feature library.
+    host_arch = "arm64" if os.uname().machine in ("aarch64", "arm64") else "x64"
+    host_libdir = os.environ.get("HOST_LIBDIR", "") or \
+        str(env.upbge_source / "lib" / f"linux_{host_arch}")
+    # The portable host build has no build RPATH: Blender runs makesdna and
+    # makesrna with LD_LIBRARY_PATH (PLATFORM_ENV_BUILD), which the target tree
+    # does not set, and runs datatoc/shader_tool without it. Bake the precompiled
+    # .so directories into the binaries instead. DT_RPATH, not RUNPATH: RUNPATH
+    # only covers direct dependencies, OpenImageIO still needs OpenEXR.
+    rpath_dirs = [] if host_libdir == "system" else sorted(
+        str(d) for d in Path(host_libdir).glob("*/lib") if any(d.glob("*.so*")))
+    rpath_flags = ("-Wl,--disable-new-dtags,-rpath," + ":".join(rpath_dirs)
+                   if rpath_dirs else "")
+    reconfigure = args_reconfigure
+
     if cmake_cache.is_file():
         cache_text = cmake_cache.read_text(errors="replace")
         cached_cc = next((line.split("=", 1)[1] for line in cache_text.splitlines()
@@ -225,19 +242,15 @@ def build_host_tools(env: Env, feature: str, verbose: bool, jobs: int) -> Path:
                 str(Path(cached_cxx).resolve()) != selected_cxx):
             info("Host compiler changed; removing the old host-tools CMake cache")
             shutil.rmtree(host_build)
+        elif f"CMAKE_EXE_LINKER_FLAGS:STRING={rpath_flags}\n" not in cache_text:
+            reconfigure = True
 
     feature_file = FEATURES_DIR / f"{feature.replace('-', '_')}.cmake"
     if not feature_file.is_file():
         raise BuildError(f"feature file missing: {feature_file}")
 
     # build.ninja, not CMakeCache.txt: a failed configure leaves a cache behind.
-    if not (host_build / "build.ninja").exists() or args_reconfigure:
-        # Host libraries: Blender's precompiled lib/linux_x64 (default), another
-        # checkout's copy (HOST_LIBDIR=/path), or distribution packages
-        # (HOST_LIBDIR=system). Strict mode needs every feature library.
-        host_arch = "arm64" if os.uname().machine in ("aarch64", "arm64") else "x64"
-        host_libdir = os.environ.get("HOST_LIBDIR", "") or \
-            str(env.upbge_source / "lib" / f"linux_{host_arch}")
+    if not (host_build / "build.ninja").exists() or reconfigure:
         if host_libdir == "system":
             libdir_args = ["-DWITH_LIBS_PRECOMPILED=OFF"]
         else:
@@ -263,6 +276,7 @@ def build_host_tools(env: Env, feature: str, verbose: bool, jobs: int) -> Path:
             # blenderplayer target without sources and fails generation. The
             # generators never build it, so buildinfo costs nothing here.
             "-DWITH_BUILDINFO=ON",
+            f"-DCMAKE_EXE_LINKER_FLAGS={rpath_flags}",
             *libdir_args,
             str(env.upbge_source),
         ]

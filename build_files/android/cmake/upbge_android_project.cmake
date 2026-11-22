@@ -48,6 +48,9 @@ function(add_executable name)
     if(NOT EXISTS "${_host_tool}")
       message(FATAL_ERROR "host tool missing: ${_host_tool} (build it in the host tree first)")
     endif()
+    # POST_BUILD only runs on relink: without this a rebuilt host tool would
+    # never replace the stale copy.
+    set_property(TARGET ${name} APPEND PROPERTY LINK_DEPENDS "${_host_tool}")
     add_custom_command(
       TARGET ${name} POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy "${_host_tool}" "$<TARGET_FILE:${name}>"
