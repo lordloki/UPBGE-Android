@@ -97,7 +97,10 @@ info "installing SDK packages via sdkmanager: platform-tools, platforms;android-
 # ---------------------------------------------------------------------------
 NDK_INSTALL_DIR="$ANDROID_HOME/ndk/$NDK_INSTALL_NAME"
 
-if [ ! -x "$NDK_INSTALL_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android-clang" ]; then
+# NDK r19+ has no unversioned <triple>-clang wrapper; checking for one made
+# every run re-download the ~600 MB archive. Check what deps/build.sh needs.
+if [ ! -x "$NDK_INSTALL_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" ] || \
+   [ ! -f "$NDK_INSTALL_DIR/build/cmake/android.toolchain.cmake" ]; then
     info "downloading NDK $NDK_VERSION from direct URL"
     info "  $NDK_ZIP_URL"
     tmp_ndk_zip="$(mktemp -d)/ndk.zip"

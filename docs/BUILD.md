@@ -134,8 +134,18 @@ make deps ARCH=arm64-v8a
 This builds the 30 libraries listed in `docs/DEPENDENCIES.md` into
 `~/upbge_android_build_base/lib/android_<arch>/`.
 
-Logs land in `~/upbge_android_build_base/logs/deps_<arch>.log`.
-Inspect them when a recipe fails.
+Logs land in `~/upbge_android_build_base/logs/deps_<arch>.log`; on failure the
+last 40 lines are printed. Completed recipes are stamped and skipped on the
+next run, so re-running `make deps` resumes at the recipe that failed:
+
+```bash
+make deps DEPS_ARGS="--only ffmpeg"   # rebuild a single recipe
+make deps DEPS_ARGS="--force"         # rebuild everything
+```
+
+A stamp is invalidated automatically when the recipe, `_helpers.sh` or the
+toolchain file changes. Everything installs into `lib/` (never `lib64/`, even
+with openSUSE's `CONFIG_SITE`), and CMake 4.x is supported.
 
 ## 6. Build the player
 

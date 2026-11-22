@@ -14,7 +14,9 @@
 # -----------------------------------------------------------------------------
 pick_host_cc() {
     if [ -z "$HOST_CC" ] || [ -z "$HOST_CXX" ]; then
-        for c in clang-19 clang-18 clang-17 gcc-15 gcc-14 gcc clang cc; do
+        # (no plain `cc`: there is no C++ counterpart to pair it with)
+        for c in clang-19 clang-20 clang-21 clang-22 clang-18 clang-17 \
+                 gcc-16 gcc-15 gcc-14 gcc clang; do
             local cxx="${c/gcc/g++}"
             cxx="${cxx/clang/clang++}"
             if command -v "$c" >/dev/null 2>&1 && command -v "$cxx" >/dev/null 2>&1; then
@@ -38,7 +40,15 @@ pick_host_cc() {
 : "${ANDROID_NDK_VERSION:=r26d}"
 : "${ANDROID_NDK_HOME:=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION}"
 : "${ANDROID_NDK_ROOT:=$ANDROID_NDK_HOME}"
-: "${JAVA_HOME:=/usr/lib/jvm/java-17-openjdk-amd64}"
+if [ -z "${JAVA_HOME:-}" ]; then
+    # Debian/Ubuntu, openSUSE (lib64), Fedora/RHEL layouts.
+    for j in /usr/lib/jvm/java-17-openjdk-amd64 /usr/lib/jvm/java-17-openjdk-arm64 \
+             /usr/lib64/jvm/java-17-openjdk /usr/lib64/jvm/java-17-openjdk-17 \
+             /usr/lib/jvm/java-17-openjdk; do
+        if [ -d "$j" ]; then JAVA_HOME="$j"; break; fi
+    done
+    : "${JAVA_HOME:=/usr/lib/jvm/java-17-openjdk-amd64}"
+fi
 : "${ANDROID_PLATFORM:=android-31}"
 : "${ANDROID_TARGET_API:=34}"
 

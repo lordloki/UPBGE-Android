@@ -49,10 +49,16 @@ apply() {
     local patch="$1"
     local strip="${2:-1}"
     echo "[apply_patches] $patch"
-    if patch -d "$SRC" -p"$strip" --dry-run < "$patch" >/dev/null 2>&1; then
-        patch -d "$SRC" -p"$strip" < "$patch"
+    # Distinguish "already applied" from "does not fit": silently skipping a
+    # rejected patch leaves a tree that configures but lacks the Android code.
+    if patch -d "$SRC" -p"$strip" -R --dry-run -f < "$patch" >/dev/null 2>&1; then
+        echo "  already applied — skipping"
+    elif patch -d "$SRC" -p"$strip" --dry-run -f < "$patch" >/dev/null 2>&1; then
+        patch -d "$SRC" -p"$strip" -f < "$patch"
     else
-        echo "  already applied or does not fit — skipping"
+        echo "[apply_patches] FAILED: $patch does not apply to $SRC" >&2
+        patch -d "$SRC" -p"$strip" --dry-run -f < "$patch" >&2 || true
+        exit 1
     fi
 }
 

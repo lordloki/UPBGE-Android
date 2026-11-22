@@ -3,11 +3,9 @@
 recipe_libpng() {
     local ver="1.6.43"
     local src="$SRC_DIR/libpng-$ver"
-    if [ ! -d "$src" ]; then
-        download_and_extract \
-            "https://downloads.sourceforge.net/libpng/libpng-$ver.tar.gz" \
-            "$src"
-    fi
+    download_and_extract \
+        "https://downloads.sourceforge.net/libpng/libpng-$ver.tar.gz" \
+        "$src"
     cmake_android "$src" "$BUILD_DIR_BASE/libpng-$ARCH" \
         -DPNG_SHARED=OFF -DPNG_STATIC=ON \
         -DPNG_TESTS=OFF -DPNG_TOOLS=OFF \

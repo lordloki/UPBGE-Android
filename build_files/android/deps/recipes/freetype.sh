@@ -3,11 +3,9 @@
 recipe_freetype() {
     local ver="2.13.2"
     local src="$SRC_DIR/freetype-$ver"
-    if [ ! -d "$src" ]; then
-        download_and_extract \
-            "https://downloads.sourceforge.net/freetype/freetype-$ver.tar.gz" \
-            "$src"
-    fi
+    download_and_extract \
+        "https://downloads.sourceforge.net/freetype/freetype-$ver.tar.gz" \
+        "$src"
     cmake_android "$src" "$BUILD_DIR_BASE/freetype-$ARCH" \
         -DFT_DISABLE_HARFBUZZ=ON \
         -DFT_DISABLE_BZIP2=ON \

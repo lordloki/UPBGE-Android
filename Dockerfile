@@ -50,23 +50,11 @@ ENV ANDROID_NDK_ROOT=${ANDROID_NDK_HOME}
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 ENV PATH="${ANDROID_HOME}/platform-tools:${ANDROID_NDK_HOME}:${PATH}"
 
-RUN mkdir -p ${ANDROID_HOME} \
-    && cd /tmp \
-    && wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
-    && unzip -q commandlinetools-linux-11076708_latest.zip -d ${ANDROID_HOME} \
-    && mkdir -p ${ANDROID_HOME}/cmdline-tools/latest \
-    && mv ${ANDROID_HOME}/cmdline-tools/bin    ${ANDROID_HOME}/cmdline-tools/latest/bin \
-    && mv ${ANDROID_HOME}/cmdline-tools/lib    ${ANDROID_HOME}/cmdline-tools/latest/lib \
-    && (mv ${ANDROID_HOME}/cmdline-tools/NOTICE        ${ANDROID_HOME}/cmdline-tools/latest/NOTICE        2>/dev/null || true) \
-    && (mv ${ANDROID_HOME}/cmdline-tools/source.properties ${ANDROID_HOME}/cmdline-tools/latest/source.properties 2>/dev/null || true) \
-    && rm commandlinetools-linux-11076708_latest.zip
-
-RUN yes | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null \
-    && ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager \
-        "platform-tools" \
-        "platforms;android-34" \
-        "build-tools;34.0.0" \
-        "ndk;${ANDROID_NDK_VERSION}"
+# Same installer as `make setup-sdk`: sdkmanager no longer accepts the short
+# "ndk;r26d" alias, so the NDK comes from its direct download URL and lands in
+# ${ANDROID_HOME}/ndk/r26d, matching ANDROID_NDK_HOME above.
+COPY scripts/install_android_sdk.sh /opt/install_android_sdk.sh
+RUN bash /opt/install_android_sdk.sh && rm /opt/install_android_sdk.sh
 
 # Pre-source env.sh in every shell so build.py sees the right vars.
 WORKDIR /work

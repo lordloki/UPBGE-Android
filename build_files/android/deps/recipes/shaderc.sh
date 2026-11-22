@@ -12,4 +12,11 @@ recipe_shaderc() {
         -DSHADERC_SKIP_COPYRIGHT_CHECK=ON -DSHADERC_ENABLE_WGSL_OUTPUT=OFF \
         -DSPIRV_SKIP_TESTS=ON -DSPIRV_SKIP_EXECUTABLES=ON \
         -DBUILD_SHARED_LIBS=OFF
+    # libshaderc always builds shaderc_shared as well; Blender links
+    # shaderc_combined, so keep the .so from shadowing the archive.
+    rm -f "$DEPS_PREFIX"/lib/libshaderc_shared.so*
+    [ -f "$DEPS_PREFIX/lib/libshaderc_combined.a" ] || {
+        echo "shaderc did not install libshaderc_combined.a" >&2
+        return 1
+    }
 }

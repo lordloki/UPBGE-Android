@@ -117,13 +117,24 @@ def resolve_env(args: argparse.Namespace) -> Env:
     ndk_version = os.environ.get("ANDROID_NDK_VERSION", "r26d")
     ndk_home = Path(os.environ.get("ANDROID_NDK_HOME",
                                     android_home / "ndk" / ndk_version))
-    java_home = Path(os.environ.get("JAVA_HOME",
-                                     "/usr/lib/jvm/java-17-openjdk-amd64"))
+    java_home = os.environ.get("JAVA_HOME", "")
+    if not java_home:
+        # Same probe order as env.sh: Debian/Ubuntu, openSUSE (lib64), Fedora.
+        for cand in ("/usr/lib/jvm/java-17-openjdk-amd64",
+                     "/usr/lib/jvm/java-17-openjdk-arm64",
+                     "/usr/lib64/jvm/java-17-openjdk",
+                     "/usr/lib64/jvm/java-17-openjdk-17",
+                     "/usr/lib/jvm/java-17-openjdk"):
+            if Path(cand).is_dir():
+                java_home = cand
+                break
+    java_home = Path(java_home or "/usr/lib/jvm/java-17-openjdk-amd64")
     host_cc = os.environ.get("HOST_CC", "")
     host_cxx = os.environ.get("HOST_CXX", "")
     if not host_cc or not host_cxx:
-        # Last-resort auto-pick a matching host compiler pair.
-        for cand in ("clang-19", "clang-18", "clang-17", "gcc-15", "gcc-14", "gcc", "clang"):
+        # Last-resort auto-pick a matching host compiler pair (same list as env.sh).
+        for cand in ("clang-19", "clang-20", "clang-21", "clang-22", "clang-18",
+                     "clang-17", "gcc-16", "gcc-15", "gcc-14", "gcc", "clang"):
             cxx = cand.replace("gcc", "g++").replace("clang", "clang++")
             cc_path = shutil.which(cand)
             cxx_path = shutil.which(cxx)
@@ -222,8 +233,9 @@ def build_host_tools(env: Env, feature: str, verbose: bool, jobs: int) -> Path:
             str(env.upbge_source),
         ]
         run(cmd, cwd=host_build, verbose=verbose)
-    run(["ninja", f"-j{jobs}", "makesdna", "makesrna", "makewavefrontobj",
-         "makesdoc"], cwd=host_build, verbose=verbose)
+    # makesdna/makesrna are the only code generators UPBGE master has.
+    run(["ninja", f"-j{jobs}", "makesdna", "makesrna"],
+        cwd=host_build, verbose=verbose)
     return host_install
 
 def configure_target(env: Env, arch: str, feature: str, dep_prefix: Path,
@@ -251,7 +263,7 @@ def configure_target(env: Env, arch: str, feature: str, dep_prefix: Path,
             f"-DANDROID_LIBDIR={dep_prefix}",
             f"-DBUILD_BASE={env.build_base}",
             f"-DUPBGE_ANDROID_ROOT={ROOT_DIR}",
-            f"-DC", str(feature_file),
+            "-C", str(feature_file),
             "-DWITH_ANDROID=ON",
             "-DWITH_PLAYER=ON",
             "-DWITH_PYTHON=ON",

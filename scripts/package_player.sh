@@ -79,12 +79,14 @@ PAYLOAD="$STAGE/assets/blender_runtime.zip"
         2>/dev/null || true
 )
 
-# Python stdlib + site-packages come from the deps prefix.
-if [ -d "$DEP_PREFIX/lib/python3.11" ]; then
+# Python stdlib + site-packages come from the deps prefix (whatever 3.x the
+# python recipe installed).
+for pydir in "$DEP_PREFIX"/lib/python3.*; do
+  [ -d "$pydir" ] || continue
   ( cd "$DEP_PREFIX/lib"
-    zip -qr "$PAYLOAD" python3.11
+    zip -qr "$PAYLOAD" "$(basename "$pydir")"
   )
-fi
+done
 
 # 4. Game .blend placeholder. The add-on replaces this with the real one.
 cat > "$STAGE/assets/game.blend" <<'EOF'
@@ -120,19 +122,20 @@ if [ -n "$AAPT2" ] && [ -n "${ANDROID_HOME:-}" ]; then
     RES_DIR="$STAGE/src/main/res"
     MANIFEST="$STAGE/AndroidManifest.xml"
     APK_UNALIGNED="$STAGE/build/upbge-player-unsigned.apk"
+    # build.py does not source env.sh; default it here (set -u).
+    TARGET_API="${ANDROID_TARGET_API:-34}"
+    TARGET_API="${TARGET_API#android-}"
     # Generate R.java for the app's resources (only strings for now).
     "$AAPT2" compile --dir "$RES_DIR" -o "$STAGE/build/resources.zip"
     "$AAPT2" link \
-        -I "$ANDROID_HOME/platforms/android-$(echo "$ANDROID_TARGET_API" | sed 's/android-//')/android.jar" \
+        -I "$ANDROID_HOME/platforms/android-${TARGET_API}/android.jar" \
         --manifest "$MANIFEST" \
         -o "$APK_UNALIGNED" \
         --java "$STAGE/src/main/java" \
         --auto-add-overlay \
         "$STAGE/build/resources.zip" || true
     # Stage the native libs and assets into the APK.
-    cd "$STAGE"
-    zip -qr "$APK_UNALIGNED" lib assets || true
-    cd -
+    ( cd "$STAGE" && zip -qr "$APK_UNALIGNED" lib assets ) || true
     ln -sf "$APK_UNALIGNED" "$STAGE/upbge-player-$FEATURE-$ARCH.apk"
     echo "[package_player] unsigned APK: $APK_UNALIGNED"
 else

@@ -3,11 +3,9 @@
 recipe_zstd() {
     local ver="1.5.6"
     local src="$SRC_DIR/zstd-$ver"
-    if [ ! -d "$src" ]; then
-        download_and_extract \
-            "https://github.com/facebook/zstd/releases/download/v$ver/zstd-$ver.tar.gz" \
-            "$src"
-    fi
+    download_and_extract \
+        "https://github.com/facebook/zstd/releases/download/v$ver/zstd-$ver.tar.gz" \
+        "$src"
     # zstd ships a CMakeLists.txt under build/cmake
     cmake_android "$src/build/cmake" "$BUILD_DIR_BASE/zstd-$ARCH" \
         -DZSTD_BUILD_PROGRAMS=OFF \

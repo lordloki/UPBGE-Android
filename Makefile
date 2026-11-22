@@ -4,7 +4,8 @@
 #   make setup-host          # install host prereqs (detects Ubuntu/openSUSE/Fedora)
 #   make setup-sdk           # install Android SDK + NDK r26d
 #   make setup               # clone UPBGE + apply patches
-#   make deps ARCH=arm64-v8a # cross-compile dependency prefix (one-time, hours)
+#   make deps ARCH=arm64-v8a # cross-compile dependency prefix (one-time, hours;
+#                            # resumes after a failure, DEPS_ARGS="--only X|--force")
 #   make build               # build blenderplayer (player-only, arm64-v8a)
 #   make package             # assemble + verify the player bundle
 #   make verify              # re-run verify_build.py on the bundle
@@ -36,9 +37,10 @@ setup-sdk:
 setup:
 	@bash $(ROOT)/scripts/fetch_upbge.sh
 
+# DEPS_ARGS is passed through, e.g. make deps DEPS_ARGS="--only ffmpeg"
 deps:
-	@ARCH=$(ARCH) JOBS=$(JOBS) \
-	  bash $(ROOT)/build_files/android/deps/build.sh
+	@ARCH=$(ARCH) JOBS=$(JOBS) BUILD_BASE=$(BUILD_BASE) \
+	  bash $(ROOT)/build_files/android/deps/build.sh $(DEPS_ARGS)
 
 build:
 	@$(PY) player-only --arch $(ARCH) --jobs $(JOBS)

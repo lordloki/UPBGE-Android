@@ -148,12 +148,14 @@ install_opensuse() {
         python311 python311-pip \
         java-17-openjdk-devel \
         pkgconf autoconf automake libtool bison flex \
-        file texinfo
+        file texinfo bzip2 xz
 
-    # openSUSE installs gcc-14 as /usr/bin/gcc-14 (with hyphen).
-    # update-alternatives gives us /usr/bin/gcc -> gcc-14.
-    run_sudo update-alternatives --install /usr/bin/gcc    gcc    /usr/bin/gcc-14    100 || true
-    run_sudo update-alternatives --install /usr/bin/g++    g++    /usr/bin/g++-14    100 || true
+    # Leap's system gcc is 7; point /usr/bin/gcc at gcc-14 there. Tumbleweed's
+    # system gcc is already >= 14 and owned by the gcc package: leave it alone.
+    if [ "$DISTRO" != "opensuse-tumbleweed" ]; then
+        run_sudo update-alternatives --install /usr/bin/gcc    gcc    /usr/bin/gcc-14    100 || true
+        run_sudo update-alternatives --install /usr/bin/g++    g++    /usr/bin/g++-14    100 || true
+    fi
     # Keep the selected compiler local to this build; changing the global
     # clang alternative can affect unrelated projects on Tumbleweed.
     if [ -x "$HOST_CLANG_CC" ] && [ -x "$HOST_CLANG_CXX" ]; then

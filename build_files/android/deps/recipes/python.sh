@@ -25,13 +25,17 @@ recipe_python() {
 
     if [ ! -x "$host_prefix/bin/python$mm" ]; then
         mkdir -p "$host_prefix"
+        # Use the selected host compiler: the system default `cc` can be newer
+        # than this CPython release supports (GCC 15 defaults to C23).
         ( cd "$host_src"
-          ./configure --prefix="$host_prefix" --without-ensurepip --disable-test-modules
+          CC="${HOST_CC:-cc}" ./configure --prefix="$host_prefix" \
+              --without-ensurepip --disable-test-modules
           make -j"$JOBS"
           make install
         )
     fi
 
+    rm -rf "$target_build"
     mkdir -p "$target_build"
     (
         cd "$target_build"
@@ -45,7 +49,9 @@ recipe_python() {
         export LDFLAGS="-L$DEPS_PREFIX/lib"
         # CPython's locale module uses GNU gettext when libintl.h is available.
         # Link the Android gettext runtime explicitly to resolve libintl_* symbols.
-        if [[ ! -f "$DEPS_PREFIX/lib/libintl.a" && ! -f "$DEPS_PREFIX/lib64/libintl.a" ]]; then
+        # (lib64 cannot happen any more: build.sh neutralizes openSUSE's
+        # CONFIG_SITE and the helpers pass --libdir explicitly.)
+        if [ ! -f "$DEPS_PREFIX/lib/libintl.a" ]; then
             echo "gettext static library not found: $DEPS_PREFIX/lib/libintl.a" >&2
             echo "Build the gettext recipe before Python and verify its installation." >&2
             exit 1
@@ -56,7 +62,7 @@ recipe_python() {
             --host="$TRIPLET" \
             --build="$("$target_src/config.guess")" \
             --with-build-python="$host_prefix/bin/python$mm" \
-            --prefix="$DEPS_PREFIX" \
+            --prefix="$DEPS_PREFIX" --libdir="$DEPS_PREFIX/lib" \
             --enable-shared=no --without-ensurepip --disable-test-modules \
             --with-platlibdir=lib \
             ac_cv_file__dev_ptmx=no ac_cv_file__dev_ptc=no \

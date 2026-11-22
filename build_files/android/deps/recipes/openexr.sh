@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # OpenEXR 3.2 uses Imath as a separate project. Build Imath first into the same prefix.
 recipe_openexr() {
-    local ver=3.2.4 imath_ver=3.1.9 imath_src="$SRC_DIR/Imath-3.1.9" exr_src="$SRC_DIR/openexr-$ver"
+    local ver=3.2.4 imath_ver=3.1.9 imath_src="$SRC_DIR/Imath-3.1.9"
+    local exr_src="$SRC_DIR/openexr-$ver"
     download_and_extract "https://github.com/AcademySoftwareFoundation/Imath/archive/refs/tags/v$imath_ver.tar.gz" "$imath_src"
     cmake_android "$imath_src" "$BUILD_DIR_BASE/imath-$ARCH" \
         -DBUILD_TESTING=OFF -DPYTHON=OFF -DBUILD_SHARED_LIBS=OFF

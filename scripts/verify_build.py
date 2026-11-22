@@ -15,13 +15,14 @@ Exit code 0 = OK, 1 = problem.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 import zipfile
 from pathlib import Path
 
 ARCH_MACHINE = {
-    "arm64-v8a":    "AArch64",
+    "arm64-v8a":    "aarch64",   # file(1) prints "ARM aarch64"
     "x86_64":       "x86-64",
     "x86":          "Intel 80386",
 }
@@ -54,9 +55,15 @@ def verify(stage: Path, arch: str, verbose: bool) -> int:
                 problems.append(f"wrong machine type: expected {machine}, got: {out.strip()}")
         except FileNotFoundError:
             if verbose: print("  (file(1) not installed; skipping ELF check)")
-        # nm / readelf: make sure android_main is exported.
+        # Make sure android_main is exported. The host's GNU nm usually cannot
+        # read AArch64 objects; prefer the NDK's llvm-nm.
+        nm = "nm"
+        ndk = os.environ.get("ANDROID_NDK_HOME", "")
+        ndk_nm = Path(ndk) / "toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+        if ndk and ndk_nm.is_file():
+            nm = str(ndk_nm)
         try:
-            out = run(["nm", "-D", "--defined-only", str(lib)])
+            out = run([nm, "-D", "--defined-only", str(lib)])
             if "android_main" not in out:
                 problems.append("symbol `android_main` is not exported from libupbgeplayer.so "
                                 "(the player wrapper did not link correctly)")
@@ -64,6 +71,8 @@ def verify(stage: Path, arch: str, verbose: bool) -> int:
                 if verbose: print("  symbol android_main: OK")
         except FileNotFoundError:
             if verbose: print("  (nm not installed; skipping symbol check)")
+        except subprocess.CalledProcessError as e:
+            problems.append(f"{nm} could not read {lib}: rc={e.returncode}")
 
     # --- runtime payload -----------------------------------------------------
     payload = stage / "assets" / "blender_runtime.zip"
@@ -115,8 +124,8 @@ def main() -> int:
     p.add_argument("stage", help="path to the assembled player bundle stage dir")
     p.add_argument("--arch", required=True, choices=list(ARCH_MACHINE))
     p.add_argument("-v","--verbose", action="store_true")
-    return verify(Path(p.parse_args().stage), p.parse_args().arch,
-                  p.parse_args().verbose)
+    args = p.parse_args()
+    return verify(Path(args.stage), args.arch, args.verbose)
 
 if __name__ == "__main__":
     sys.exit(main())
