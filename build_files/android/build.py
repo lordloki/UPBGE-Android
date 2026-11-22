@@ -259,6 +259,10 @@ def build_host_tools(env: Env, feature: str, verbose: bool, jobs: int) -> Path:
             # The code generators never need the CPU check (it also requires
             # precompiled libraries).
             "-DWITH_CPU_CHECK=OFF",
+            # The feature files turn buildinfo off, which leaves the desktop
+            # blenderplayer target without sources and fails generation. The
+            # generators never build it, so buildinfo costs nothing here.
+            "-DWITH_BUILDINFO=ON",
             *libdir_args,
             str(env.upbge_source),
         ]

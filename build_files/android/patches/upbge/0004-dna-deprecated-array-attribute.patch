@@ -1,0 +1,13 @@
+diff --git a/source/blender/makesdna/DNA_space_types.h b/source/blender/makesdna/DNA_space_types.h
+index f3e43759..a7a1232d 100644
+--- a/source/blender/makesdna/DNA_space_types.h
++++ b/source/blender/makesdna/DNA_space_types.h
+@@ -933,7 +933,7 @@ typedef struct SpaceLogic {
+   int spacetype;
+   float blockscale DNA_DEPRECATED;
+ 
+-  short blockhandler[8] DNA_DEPRECATED;
++  DNA_DEPRECATED short blockhandler[8];
+ 
+   short flag, scaflag;
+   char _pad[4];

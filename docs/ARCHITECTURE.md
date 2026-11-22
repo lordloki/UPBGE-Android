@@ -49,6 +49,7 @@ DEVICE (Android 12+, arm64, Vulkan 1.2)
 | `build_files/android/patches/upbge/0001-*.patch` | Blender-owned files (GHOST Vulkan context, `gpu/vulkan`), every hunk marked `UPBGE - Android`: Android surface and zero-cost pre-rotation. |
 | `build_files/android/patches/upbge/0002-*.patch` | UPBGE-owned files: `GamePlayer/android/` backend and entry point, `GPG_ghost.cpp`, player CMake. |
 | `build_files/android/patches/upbge/0003-*.patch` | Blender-owned files, marked like 0001: geometry shaders optional (Mali). Multi-viewport and barycentrics fall back when the matching extensions are missing. |
+| `build_files/android/patches/upbge/0004-*.patch` | UPBGE `SpaceLogic` DNA: `[[deprecated]]` placed before the array field. Clang rejects it after the declarator. Drop once UPBGE master carries the fix. |
 | `build_files/android/patches/oidn_android.diff`, `glog_android.diff` | Reference patches Wanderson carries for the `full` feature set. Not applied in current recipes. |
 | `build_files/android/apk/` | `AndroidManifest.xml` (NativeActivity, `hasCode=false`) and `strings.xml`. |
 | `build_files/android/debug.sh` | Read / write `blender_args.txt`, follow logcat, dump crash buffer. |
