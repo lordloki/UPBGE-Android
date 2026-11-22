@@ -55,6 +55,15 @@ cmake_android() {
     # CMAKE_POLICY_VERSION_MINIMUM: CMake >= 4.0 (openSUSE Tumbleweed, Arch)
     # rejects cmake_minimum_required(VERSION < 3.5), used by lz4, libjpeg-turbo,
     # freetype and openal-soft. It is ignored by older CMake.
+    # Python: programs are searched on the host (FIND_ROOT_PATH_MODE_PROGRAM
+    # NEVER), but CMAKE_PREFIX_PATH adds $DEPS_PREFIX/bin, where the python
+    # recipe installs an ARM python3. Code generators (SPIRV-Tools, glslang)
+    # would pick it and fail; pin the host interpreter.
+    local host_python
+    host_python="$(command -v python3)" || {
+        echo "python3 not found on the host" >&2
+        return 1
+    }
     cmake -S "$src" -B "$bld" -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE="$DEPS_TOOLCHAIN" \
         -DANDROID_ABI="$ARCH" \
@@ -69,6 +78,9 @@ cmake_android() {
         -DBUILD_SHARED_LIBS=OFF \
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DBUILD_TESTING=OFF \
+        -DPython3_EXECUTABLE="$host_python" \
+        -DPython_EXECUTABLE="$host_python" \
+        -DPYTHON_EXECUTABLE="$host_python" \
         "$@"
     cmake --build "$bld" --parallel "$JOBS"
     cmake --install "$bld"
