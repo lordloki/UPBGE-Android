@@ -83,6 +83,20 @@ unset(_upbge_android_stubs)
 set(pystring_ROOT "${UPBGE_ANDROID_DEPS_PREFIX}")
 set(minizip-ng_ROOT "${UPBGE_ANDROID_DEPS_PREFIX}")
 
+# FindPythonLibsUnix looks for include/python3.13 below its HINTS only; re-rooted
+# system prefixes give <root>/include/include/python3.13, so without a root the
+# headers are never found. That root also makes its find_program() pick the ARM
+# python3 the recipe installs in <root>/bin, and the build runs PYTHON_EXECUTABLE
+# (discover_nodes.py): fix it to the host interpreter from PATH first.
+set(PYTHON_ROOT_DIR "${UPBGE_ANDROID_DEPS_PREFIX}")
+find_program(PYTHON_EXECUTABLE NAMES python3.13 python3
+  NO_PACKAGE_ROOT_PATH NO_CMAKE_PATH NO_CMAKE_ENVIRONMENT_PATH NO_CMAKE_SYSTEM_PATH
+  NO_CMAKE_FIND_ROOT_PATH
+)
+if(NOT PYTHON_EXECUTABLE)
+  message(FATAL_ERROR "no host python3 in PATH")
+endif()
+
 # Bare -l<name> entries from pkg-config results (shaderc_combined, intl, ...)
 # resolve in the deps prefix.
 link_directories("${UPBGE_ANDROID_DEPS_PREFIX}/lib")
