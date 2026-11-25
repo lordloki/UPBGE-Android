@@ -104,6 +104,12 @@ else
         cp "$BINARY" "$LIB"
     fi
 fi
+# Extra native libraries next to the player, e.g. the Vulkan validation layer:
+# for a debuggable APK the Android loader also searches the app's lib dir.
+for extra in ${UPBGE_ANDROID_EXTRA_LIBS:-}; do
+    log "extra native library: $extra"
+    cp "$extra" "$STAGE/lib/$ARCH/"
+done
 
 # --- Resources (the same layout as an installed <version>/ directory) -----------
 copy_tree "$UPBGE_SOURCE/release/datafiles/colormanagement" "$RES/datafiles/colormanagement"
