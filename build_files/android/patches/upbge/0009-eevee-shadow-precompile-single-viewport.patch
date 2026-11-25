@@ -1,0 +1,29 @@
+EEVEE: precompile the shadow pipeline with one viewport without multi-viewport.
+
+Blender-owned file; the hunk is enclosed in "UPBGE - Android" comments.
+Not Android specific: affects any device without multiViewport.
+
+The MAT_PIPE_SHADOW pipeline state hard-codes 16 viewports, but ShadowModule
+only uses multi-viewport when GPU_multi_viewport_support() is true and
+otherwise renders through one viewport. On Mali (maxViewports 1) the
+precompiled pipeline violated VUID-VkPipelineViewportStateCreateInfo-
+viewportCount-01216/01218 and never matched the runtime pipeline key anyway.
+
+Applies after 0003.
+
+diff --git a/source/blender/draw/engines/eevee/eevee_shader.cc b/source/blender/draw/engines/eevee/eevee_shader.cc
+index 7b52346..ddd943c 100644
+--- a/source/blender/draw/engines/eevee/eevee_shader.cc
++++ b/source/blender/draw/engines/eevee/eevee_shader.cc
+@@ -1877,7 +1877,10 @@ void ShaderModule::material_create_info_pipelines_amend(eMaterialGeometry geomet
+                  GPU_STENCIL_NONE,
+                  GPU_STENCIL_OP_NONE,
+                  GPU_VERTEX_LAST)
+-          .viewports(16);
++          /* UPBGE - Android: without multi-viewport (Mali: maxViewports 1) shadows render
++           * through a single viewport (see ShadowModule), so must the precompiled state. */
++          .viewports(GPU_multi_viewport_support() ? 16 : 1);
++          /* UPBGE - Android */
+       break;
+     }
+ 
