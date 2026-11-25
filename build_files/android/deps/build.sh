@@ -101,6 +101,11 @@ unset PKG_CONFIG_SYSROOT_DIR PKG_CONFIG_PATH
 # openSUSE exports CONFIG_SITE, which makes every autoconf configure install
 # into lib64. Autoconf skips /dev/null explicitly.
 export CONFIG_SITE=/dev/null
+# `make deps ARCH=...` puts its command-line variables in MAKEFLAGS, and every
+# nested make treats them as overrides: FFmpeg's ARCH=aarch64 became arm64-v8a,
+# its -include of <lib>/$(ARCH)/Makefile found nothing and the NEON code was
+# silently left out. Recipes pass -j themselves; start each make clean.
+unset MAKEFLAGS MFLAGS MAKELEVEL
 
 # CMake toolchain reused by every recipe (thin wrapper over the NDK one).
 export DEPS_TOOLCHAIN="$ANDROID_DIR/toolchain/android.toolchain.cmake"
