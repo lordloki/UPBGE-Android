@@ -1,0 +1,79 @@
+BGE: build the Sound actuator without the aud Python binding.
+
+UPBGE-owned files (source/gameengine); no "UPBGE - Android" markers needed,
+the change is platform independent and can go to UPBGE as is.
+
+audaspace only builds its Python binding (audaspace-py) with NumPy, but
+SCA_SoundActuator used the aud Python API whenever WITH_PYTHON was set, so any
+build with WITH_PYTHON_NUMPY=OFF (Android, but also Linux) failed to link.
+- GameLogic defines WITH_AUDASPACE_PY with the same rule as bpy;
+- the `sound` attribute needs it: the getter returns None and the setter
+  raises NotImplementedError instead of failing without an exception.
+
+Applies independently of 0001-0005.
+
+diff --git a/source/gameengine/GameLogic/CMakeLists.txt b/source/gameengine/GameLogic/CMakeLists.txt
+index 8b12c27..9b21777 100644
+--- a/source/gameengine/GameLogic/CMakeLists.txt
++++ b/source/gameengine/GameLogic/CMakeLists.txt
+@@ -213,6 +213,11 @@ if(WITH_AUDASPACE)
+     )
+   endif()
+   add_definitions(-DWITH_AUDASPACE)
++  # audaspace only builds its Python binding (audaspace-py) with NumPy, see
++  # extern/audaspace/blender_config.cmake. Same rule as bpy's aud module.
++  if(WITH_PYTHON AND WITH_PYTHON_NUMPY)
++    add_definitions(-DWITH_AUDASPACE_PY)
++  endif()
+ endif()
+ 
+ if(WITH_SDL)
+diff --git a/source/gameengine/GameLogic/SCA_SoundActuator.cpp b/source/gameengine/GameLogic/SCA_SoundActuator.cpp
+index 6f7ca9a..fe891ad 100644
+--- a/source/gameengine/GameLogic/SCA_SoundActuator.cpp
++++ b/source/gameengine/GameLogic/SCA_SoundActuator.cpp
+@@ -44,7 +44,7 @@ typedef float sample_t;
+ #  include <sequence/PingPong.h>
+ #  include <util/StreamBuffer.h>
+ #  include <file/File.h>
+-#  ifdef WITH_PYTHON
++#  ifdef WITH_AUDASPACE_PY
+ #    include <python/PyAPI.h>
+ #  endif
+ #  include <devices/IDevice.h>
+@@ -550,7 +550,7 @@ PyObject *SCA_SoundActuator::pyattr_get_pitch(EXP_PyObjectPlus *self,
+ PyObject *SCA_SoundActuator::pyattr_get_sound(EXP_PyObjectPlus *self,
+                                               const struct EXP_PYATTRIBUTE_DEF *attrdef)
+ {
+-#  ifdef WITH_AUDASPACE
++#  ifdef WITH_AUDASPACE_PY
+   SCA_SoundActuator *actuator = static_cast<SCA_SoundActuator *>(self);
+ 
+   if (actuator->m_sound) {
+@@ -558,7 +558,7 @@ PyObject *SCA_SoundActuator::pyattr_get_sound(EXP_PyObjectPlus *self,
+     std::shared_ptr<aud::ISound> tmp = actuator->m_sound;
+     return AUD_getPythonSound(&tmp);
+   }
+-#  endif  // WITH_AUDASPACE
++#  endif  // WITH_AUDASPACE_PY
+ 
+   Py_RETURN_NONE;
+ }
+@@ -720,7 +720,7 @@ int SCA_SoundActuator::pyattr_set_sound(EXP_PyObjectPlus *self,
+     return PY_SET_ATTR_SUCCESS;
+   }
+ 
+-#  ifdef WITH_AUDASPACE
++#  ifdef WITH_AUDASPACE_PY
+   // Try to get audaspace sound from Python object.
+   void *sndptr = AUD_getSoundFromPython(value);
+   if (!sndptr) {
+@@ -750,6 +750,8 @@ int SCA_SoundActuator::pyattr_set_sound(EXP_PyObjectPlus *self,
+   }
+   return PY_SET_ATTR_SUCCESS;
+ #  else
++  PyErr_SetString(PyExc_NotImplementedError,
++                  "actuator.sound = value: built without the aud Python module");
+   return PY_SET_ATTR_FAIL;
+ #  endif
+ }
