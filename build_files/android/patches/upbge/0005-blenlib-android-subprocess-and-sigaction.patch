@@ -1,0 +1,41 @@
+Blenlib on Android: no POSIX shared memory, bionic struct sigaction layout.
+
+Blender-owned files; every hunk is enclosed in "UPBGE - Android" comments.
+
+- BLI_subprocess: disabled on Android (shm_open/shm_unlink do not exist in
+  bionic); every user is already guarded by BLI_SUBPROCESS_SUPPORT.
+- BLI_mmap: value-initialize struct sigaction instead of a nested nullptr
+  initializer that assumes the glibc member order.
+
+diff --git a/source/blender/blenlib/BLI_subprocess.hh b/source/blender/blenlib/BLI_subprocess.hh
+index a322def..e819f5b 100644
+--- a/source/blender/blenlib/BLI_subprocess.hh
++++ b/source/blender/blenlib/BLI_subprocess.hh
+@@ -15,7 +15,10 @@
+  * Its use should always be inside `#if BLI_SUBPROCESS_SUPPORT` preprocessor directives.
+  */
+ 
+-#if defined(_WIN32) || defined(__linux__)
++/* UPBGE - Android: bionic has no POSIX shared memory (shm_open/shm_unlink). Subprocesses are
++ * only used for OpenGL shader compilation, which the Android player does not use. */
++#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
++/* UPBGE - Android */
+ #  define BLI_SUBPROCESS_SUPPORT 1
+ #else
+ #  define BLI_SUBPROCESS_SUPPORT 0
+diff --git a/source/blender/blenlib/intern/BLI_mmap.cc b/source/blender/blenlib/intern/BLI_mmap.cc
+index 5e29e6f..6be2eb8 100644
+--- a/source/blender/blenlib/intern/BLI_mmap.cc
++++ b/source/blender/blenlib/intern/BLI_mmap.cc
+@@ -333,7 +333,10 @@ static bool ensure_mmap_initialized()
+ 
+   std::unique_lock lock(mmap_mutex);
+   if (!initialized) {
+-    struct sigaction newact = {{nullptr}}, oldact = {{nullptr}};
++    /* UPBGE - Android: bionic puts `int sa_flags` first in struct sigaction, so the nested
++     * nullptr initializer does not compile there. `{}` zero-initializes on every libc. */
++    struct sigaction newact = {}, oldact = {};
++    /* UPBGE - Android */
+ 
+     newact.sa_sigaction = sigbus_handler;
+     newact.sa_flags = SA_SIGINFO;
