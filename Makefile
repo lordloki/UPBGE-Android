@@ -8,6 +8,8 @@
 #                            # resumes after a failure, DEPS_ARGS="--only X|--force")
 #   make build               # build blenderplayer (player-only, arm64-v8a)
 #   make package             # assemble + verify the player bundle
+#                            # (BLEND=path/game.blend ships that game)
+#   make test                # package with Blends/test_android.blend
 #   make verify              # re-run verify_build.py on the bundle
 #   make deploy              # install + run on a connected device
 #   make clean-build         # wipe the build tree (keep deps prefix)
@@ -18,11 +20,12 @@
 ARCH      ?= arm64-v8a
 JOBS      ?= $(shell nproc)
 BUILD_BASE ?= $(HOME)/upbge_android_build_base
+TEST_BLEND ?= $(ROOT)/Blends/test_android.blend
 
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 PY   := python3 $(ROOT)/build_files/android/build.py
 
-.PHONY: setup-host setup-sdk setup deps build package verify deploy \
+.PHONY: setup-host setup-sdk setup deps build package test verify deploy \
         clean-build clean-all env-check
 
 env-check:
@@ -46,10 +49,16 @@ build:
 	@$(PY) player-only --arch $(ARCH) --jobs $(JOBS)
 
 package:
-	@$(PY) player-only --arch $(ARCH) --repackage --jobs $(JOBS)
+	@$(PY) player-only --arch $(ARCH) --repackage --jobs $(JOBS) \
+	  $(if $(BLEND),--blend "$(BLEND)")
 	@python3 $(ROOT)/scripts/verify_build.py \
 	  --arch $(ARCH) -v \
 	  "$(BUILD_BASE)/android_apk_stage_player-only_$(ARCH)"
+
+# Repackage (no rebuild) with the test scene: the target-specific BLEND is
+# inherited by the package prerequisite.
+test: BLEND = $(TEST_BLEND)
+test: package
 
 verify:
 	@python3 $(ROOT)/scripts/verify_build.py \
