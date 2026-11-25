@@ -18,7 +18,11 @@ recipe_ffmpeg() {
         export CXX="$ndk_bin/${TRIPLET}${api}-clang++"
         export AR="$ndk_bin/llvm-ar" RANLIB="$ndk_bin/llvm-ranlib"
         export STRIP="$ndk_bin/llvm-strip" NM="$ndk_bin/llvm-nm"
-        export CFLAGS="-O2 -fPIC -D__ANDROID_API__=$api -I$DEPS_PREFIX/include"
+        # Hidden visibility, as for every CMake dep (toolchain file): FFmpeg's
+        # NEON code reaches C tables (ff_tx_tab_*) with adrp/add, which lld
+        # rejects against preemptible symbols in a shared object. FFmpeg's own
+        # shared builds hide them with a version script; static archives don't.
+        export CFLAGS="-O2 -fPIC -fvisibility=hidden -D__ANDROID_API__=$api -I$DEPS_PREFIX/include"
         export LDFLAGS="-L$DEPS_PREFIX/lib"
         # Libraries: Blender's FindFFmpeg requires avcodec, avdevice, avfilter,
         # avformat, avutil, swscale and swresample. With --disable-everything
