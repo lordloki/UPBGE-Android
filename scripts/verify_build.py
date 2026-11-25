@@ -114,8 +114,17 @@ def verify(stage: Path, arch: str, verbose: bool) -> int:
     blend = stage / "assets" / "game.blend"
     if not blend.exists():
         problems.append(f"missing assets/game.blend: {blend}")
-    elif not blend.read_bytes()[:7] == b"BLENDER" and verbose:
-        print("  game.blend: placeholder (not a .blend yet)")
+    elif verbose:
+        # Blender writes a raw .blend, or a zstd stream when the file is saved
+        # with "Compress" (zstd since 3.0): check both magics.
+        with blend.open("rb") as f:
+            head = f.read(7)
+        if head == b"BLENDER":
+            print("  game.blend: .blend")
+        elif head[:4] == b"\x28\xb5\x2f\xfd":
+            print("  game.blend: .blend (zstd-compressed)")
+        else:
+            print("  game.blend: placeholder (not a .blend yet)")
 
     # --- bundle readme -------------------------------------------------------
     readme = stage / "PACKAGE_README.txt"
