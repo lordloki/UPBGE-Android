@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Minimal static FFmpeg build for UPBGE's player runtime.
+# Version pinned to UPBGE's versions.cmake: ffmpeg_compat.h requires 7.1+.
 recipe_ffmpeg() {
-    local ver=6.1.1 src="$SRC_DIR/ffmpeg-6.1.1"
+    local ver=8.1 src="$SRC_DIR/ffmpeg-8.1"
     local api="${ANDROID_PLATFORM#android-}"
     local ndk_bin="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$NDK_HOST_OS_TAG/bin"
     local bld="$BUILD_DIR_BASE/ffmpeg-$ARCH"
@@ -31,7 +32,7 @@ recipe_ffmpeg() {
             --enable-pic --enable-static --disable-shared \
             --disable-programs --disable-doc --disable-debug \
             --disable-network --disable-autodetect \
-            --disable-postproc --disable-encoders --disable-muxers --disable-filters \
+            --disable-encoders --disable-muxers --disable-filters \
             --disable-everything \
             --enable-avcodec --enable-avformat --enable-avutil --enable-swresample \
             --enable-avdevice --enable-avfilter --enable-swscale \
