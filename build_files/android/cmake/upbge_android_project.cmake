@@ -27,6 +27,12 @@ set(ENV{PKG_CONFIG_LIBDIR}
   "${UPBGE_ANDROID_DEPS_PREFIX}/lib/pkgconfig:${UPBGE_ANDROID_DEPS_PREFIX}/share/pkgconfig")
 set(ENV{PKG_CONFIG_PATH} "")
 
+# --- Feature probes -------------------------------------------------------------
+# bionic ships <execinfo.h> but declares backtrace() only from API 33, so with
+# minSdk 31 the header probe in have_features.cmake passes and blenlib's
+# system.cc fails to compile. Pre-seeding the result makes the probe a no-op.
+set(HAVE_EXECINFO_H 0 CACHE INTERNAL "")
+
 # --- Host code generators -------------------------------------------------------
 # makesdna, makesrna, datatoc and shader_tool run during the build, so the
 # cross-compiled ARM binaries are useless on the host. Each target still builds
