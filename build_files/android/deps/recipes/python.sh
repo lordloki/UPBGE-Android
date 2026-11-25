@@ -73,6 +73,22 @@ recipe_python() {
             MODULE_BUILDTYPE=static
         make -j"$JOBS"
         make install
+        # Built-in modules put their objects in libpython, but the helper
+        # archives they need (libmpdec, bundled expat, HACL*) stay in the build
+        # tree: CPython only adds them (MODLIBS) when linking its own
+        # executable, and python-embed.pc does not list them. Merge them so
+        # libpython is self-contained for the player link.
+        local lib="$DEPS_PREFIX/lib/libpython$mm.a" a
+        {
+            echo "create $lib.merged"
+            echo "addlib $lib"
+            for a in $(find Modules -name 'lib*.a' | sort); do
+                echo "addlib $a"
+            done
+            echo "save"
+            echo "end"
+        } | "$ndk_bin/llvm-ar" -M
+        mv -f "$lib.merged" "$lib"
     )
 
     [ -f "$DEPS_PREFIX/lib/libpython$mm.a" ] || {
