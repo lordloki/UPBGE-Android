@@ -1,0 +1,32 @@
+Vulkan: enable shaderStorageImageExtendedFormats when the device has it.
+
+Blender-owned file; the hunk is enclosed in "UPBGE - Android" comments.
+Not Android specific: a correct-usage fix that could go to Blender.
+
+EEVEE declares storage images with extended formats (deferred light writes
+RAYTRACE_RADIANCE_FORMAT = r11f_g11f_b10f), so its SPIR-V uses the
+StorageImageExtendedFormats capability. GHOST never enabled the matching
+device feature. Desktop drivers accept the pipeline anyway; the Mali driver
+returns no pipeline for eevee_deferred_light_*, which is later bound as
+VK_NULL_HANDLE and crashes in vkCmdBindPipeline.
+
+Applies after 0003.
+
+diff --git a/intern/ghost/intern/GHOST_ContextVK.cc b/intern/ghost/intern/GHOST_ContextVK.cc
+index 60a0ec1..c8f5d92 100644
+--- a/intern/ghost/intern/GHOST_ContextVK.cc
++++ b/intern/ghost/intern/GHOST_ContextVK.cc
+@@ -638,6 +638,13 @@ struct GHOST_InstanceVK {
+     device_features.imageCubeArray = VK_TRUE;
+     device_features.multiDrawIndirect = device.features.features.multiDrawIndirect;
+     device_features.drawIndirectFirstInstance = VK_TRUE;
++    /* UPBGE - Android: EEVEE writes storage images with extended formats
++     * (r11f_g11f_b10f, rg16f, ...), so its SPIR-V declares the
++     * StorageImageExtendedFormats capability, which requires this feature.
++     * Desktop drivers tolerate it missing; Mali refuses to build the pipeline. */
++    device_features.shaderStorageImageExtendedFormats =
++        device.features.features.shaderStorageImageExtendedFormats;
++    /* UPBGE - Android */
+     device_features.samplerAnisotropy = device.features.features.samplerAnisotropy;
+     device_features.wideLines = device.features.features.wideLines;
+ 
