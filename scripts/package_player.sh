@@ -124,6 +124,12 @@ copy_tree "$PYLIB" "$STDLIB_TMP" \
 # The .py files stay for tracebacks.
 PYZIP="$RES/python/lib/python${PYVER/./}.zip"
 HOST_PYTHON="${HOST_PYTHON:-$(command -v "python$PYVER" || true)}"
+# Distros without python3.13 (Ubuntu 24.04 ships 3.12): use the host
+# interpreter the python recipe builds next to the deps prefix.
+if [ -z "$HOST_PYTHON" ]; then
+    host_py="$(dirname "$(dirname "$DEP_PREFIX")")/deps_build/$ARCH/python-host/bin/python$PYVER"
+    [ -x "$host_py" ] && HOST_PYTHON="$host_py"
+fi
 if [ -n "$HOST_PYTHON" ] && command -v zip >/dev/null 2>&1 &&
    [ "$("$HOST_PYTHON" -c 'import sys; print("%d.%d" % sys.version_info[:2])')" = "$PYVER" ]; then
     "$HOST_PYTHON" -m compileall -q -b -j0 --invalidation-mode unchecked-hash \
