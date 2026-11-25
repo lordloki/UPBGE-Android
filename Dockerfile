@@ -42,17 +42,17 @@ RUN update-alternatives --install /usr/bin/gcc    gcc    /usr/bin/gcc-14    100 
  && update-alternatives --install /usr/bin/clang  clang  /usr/bin/clang-17  100 \
  && update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-17 100
 
-# Android SDK + command-line tools + NDK r27d.
+# Android SDK + command-line tools + NDK r29.
 ENV ANDROID_HOME=/opt/android-sdk
-ENV ANDROID_NDK_VERSION=r27d
+ENV ANDROID_NDK_VERSION=r29
 ENV ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}
 ENV ANDROID_NDK_ROOT=${ANDROID_NDK_HOME}
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 ENV PATH="${ANDROID_HOME}/platform-tools:${ANDROID_NDK_HOME}:${PATH}"
 
 # Same installer as `make setup-sdk`: sdkmanager no longer accepts the short
-# "ndk;r27d" alias, so the NDK comes from its direct download URL and lands in
-# ${ANDROID_HOME}/ndk/r27d, matching ANDROID_NDK_HOME above.
+# "ndk;r29" alias, so the NDK comes from its direct download URL and lands in
+# ${ANDROID_HOME}/ndk/r29, matching ANDROID_NDK_HOME above.
 COPY scripts/install_android_sdk.sh /opt/install_android_sdk.sh
 RUN bash /opt/install_android_sdk.sh && rm /opt/install_android_sdk.sh
 

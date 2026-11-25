@@ -2,7 +2,7 @@
 #
 # Usage:
 #   make setup-host          # install host prereqs (detects Ubuntu/openSUSE/Fedora)
-#   make setup-sdk           # install Android SDK + NDK r27d
+#   make setup-sdk           # install Android SDK + NDK r29
 #   make setup               # clone UPBGE + apply patches
 #   make deps ARCH=arm64-v8a # cross-compile dependency prefix (one-time, hours;
 #                            # resumes after a failure, DEPS_ARGS="--only X|--force")

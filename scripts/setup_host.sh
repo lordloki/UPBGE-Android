@@ -256,7 +256,7 @@ if [ -n "$HOST_CC_OUT" ]; then
 fi
 cat <<EOF
     export ANDROID_HOME=\$HOME/Android/Sdk
-    export ANDROID_NDK_VERSION=r27d
+    export ANDROID_NDK_VERSION=r29
     export ANDROID_NDK_HOME=\$ANDROID_HOME/ndk/\$ANDROID_NDK_VERSION
     export ANDROID_NDK_ROOT=\$ANDROID_NDK_HOME
     export PATH=\$ANDROID_HOME/platform-tools:\$ANDROID_NDK_HOME:\$PATH

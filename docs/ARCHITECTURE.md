@@ -6,7 +6,7 @@ running `.blend` on a phone.
 ## Bird's-eye view
 
 ```
-HOST (Linux, NDK r27d)
+HOST (Linux, NDK r29)
   scripts/fetch_upbge.sh       -> $UPBGE_SOURCE (UPBGE master + patches/upbge/*.patch)
   deps/build.sh                -> $BUILD_BASE/lib/android_<arch>   (static libraries)
   build.py player-only

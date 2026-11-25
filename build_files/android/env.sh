@@ -37,7 +37,7 @@ pick_host_cc() {
 # Android SDK / NDK / JDK
 # -----------------------------------------------------------------------------
 : "${ANDROID_HOME:=$HOME/Android/Sdk}"
-: "${ANDROID_NDK_VERSION:=r27d}"
+: "${ANDROID_NDK_VERSION:=r29}"
 : "${ANDROID_NDK_HOME:=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION}"
 : "${ANDROID_NDK_ROOT:=$ANDROID_NDK_HOME}"
 if [ -z "${JAVA_HOME:-}" ]; then

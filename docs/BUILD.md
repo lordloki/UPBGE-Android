@@ -64,7 +64,7 @@ Homebrew's `clang-17`, `cmake`, `ninja`, `openjdk@17`, `python@3.11` by
 hand. Windows: use WSL2 (Ubuntu inside Windows) and run `make setup-host`
 there — keep the checkout inside the WSL filesystem, not `/mnt/c/...`.
 
-## 3. Android SDK + NDK r27d
+## 3. Android SDK + NDK r29
 
 Still from inside the repo, run:
 
@@ -80,7 +80,7 @@ command-line tools, accepts the SDK licenses, and installs:
 - `platform-tools` (adb)
 - `platforms;android-34`
 - `build-tools;34.0.0`
-- `ndk;r27d`
+- `ndk;r29`
 
 It is idempotent — re-run only installs what is missing.
 
@@ -88,7 +88,7 @@ After it finishes, add these to `~/.bashrc` (the script prints them too):
 
 ```bash
 export ANDROID_HOME=$HOME/Android/Sdk
-export ANDROID_NDK_VERSION=r27d
+export ANDROID_NDK_VERSION=r29
 export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION
 export ANDROID_NDK_ROOT=$ANDROID_NDK_HOME
 export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64   # Ubuntu/Debian

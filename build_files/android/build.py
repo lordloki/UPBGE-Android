@@ -112,7 +112,7 @@ class Env:
 
 def resolve_env(args: argparse.Namespace) -> Env:
     android_home = Path(os.environ.get("ANDROID_HOME", ""))
-    ndk_version = os.environ.get("ANDROID_NDK_VERSION", "r27d")
+    ndk_version = os.environ.get("ANDROID_NDK_VERSION", "r29")
     ndk_home = Path(os.environ.get("ANDROID_NDK_HOME",
                                     android_home / "ndk" / ndk_version))
     java_home = os.environ.get("JAVA_HOME", "")

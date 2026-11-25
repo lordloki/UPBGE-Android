@@ -2,13 +2,13 @@
 # scripts/install_android_sdk.sh
 #
 # Install the Android SDK command-line tools, platform-tools, platform
-# android-34, build-tools 34.0.0 and NDK r27d into $ANDROID_HOME
+# android-34, build-tools 34.0.0 and NDK r29 into $ANDROID_HOME
 # (default: $HOME/Android/Sdk). Idempotent: re-runs only install what is
 # missing.
 #
 # IMPORTANT: the NDK is downloaded as a direct .zip from
-#   https://dl.google.com/android/repository/android-ndk-r27d-linux.zip
-# instead of via `sdkmanager "ndk;r27d"`. Recent versions of the Android
+#   https://dl.google.com/android/repository/android-ndk-r29-linux.zip
+# instead of via `sdkmanager "ndk;r29"`. Recent versions of the Android
 # command-line tools only accept the exact numeric package name
 # (e.g. `ndk;27.3.13750724`) — the short `rXX` alias is no longer recognized
 # and the numeric name changes with every NDK patch release. The direct
@@ -24,7 +24,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Default values mirror build_files/android/env.sh
 ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
-NDK_VERSION="${ANDROID_NDK_VERSION:-r27d}"
+NDK_VERSION="${ANDROID_NDK_VERSION:-r29}"
 NDK_DIR_NAME="android-ndk-${NDK_VERSION}"
 NDK_INSTALL_NAME="${NDK_VERSION}"   # final dir name under $ANDROID_HOME/ndk/
 ANDROID_PLATFORM="${ANDROID_PLATFORM:-android-31}"
@@ -92,8 +92,8 @@ info "installing SDK packages via sdkmanager: platform-tools, platforms;android-
     "build-tools;${BUILD_TOOLS_VER}"
 
 # ---------------------------------------------------------------------------
-# 3. NDK r27d — installed from the direct .zip URL (NOT via sdkmanager).
-#    This is the fix for: "Failed to find package 'ndk;r27d'" on cmdline-tools 16+.
+# 3. NDK r29 — installed from the direct .zip URL (NOT via sdkmanager).
+#    This is the fix for: "Failed to find package 'ndk;r29'" on cmdline-tools 16+.
 # ---------------------------------------------------------------------------
 NDK_INSTALL_DIR="$ANDROID_HOME/ndk/$NDK_INSTALL_NAME"
 
@@ -107,7 +107,7 @@ if [ ! -x "$NDK_INSTALL_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" ] |
     curl -fL --retry 3 -o "$tmp_ndk_zip" "$NDK_ZIP_URL"
 
     # The archive extracts to a top-level directory named
-    # android-ndk-r27d/  — unpack into a temp dir, then move/rename into
+    # android-ndk-r29/  — unpack into a temp dir, then move/rename into
     # $ANDROID_HOME/ndk/$NDK_VERSION (the path env.sh expects).
     tmp_extract="$(mktemp -d)"
     unzip -q "$tmp_ndk_zip" -d "$tmp_extract"
