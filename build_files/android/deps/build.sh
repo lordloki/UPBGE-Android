@@ -173,6 +173,7 @@ RECIPES=(
     freetype
     gettext
     sqlite
+    expat           # CPython (pyexpat), OpenColorIO
     python
     tiff
     openjph         # OpenEXR (HTJ2K)
@@ -188,7 +189,6 @@ RECIPES=(
     glew
     fmt
     robinmap        # OpenImageIO
-    expat           # OpenColorIO
     yamlcpp         # OpenColorIO
     pystring        # OpenColorIO
     minizipng       # OpenColorIO
@@ -210,7 +210,7 @@ RECIPES=(
 declare -A RECIPE_DEPS=(
     [libpng]="zlib"
     [freetype]="zlib brotli"
-    [python]="zlib sqlite gettext"
+    [python]="zlib sqlite gettext expat"
     [tiff]="zlib libjpeg"
     [openexr]="zlib openjph"
     [flac]="ogg"

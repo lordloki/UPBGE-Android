@@ -63,18 +63,22 @@ recipe_python() {
             exit 1
         fi
         export LIBS="-lintl ${LIBS:-}"
+        # The bundled expat only renames the public XML_* API (pyexpatns.h);
+        # its internal globals would clash with the prefix libexpat that
+        # OpenColorIO links. Use that one: a single expat in the player.
         "$src/configure" \
             --host="$TRIPLET" \
             --build="$("$src/config.guess")" \
             --with-build-python="$host_prefix/bin/python$mm" \
             --prefix="$DEPS_PREFIX" --libdir="$DEPS_PREFIX/lib" \
             --disable-shared --without-ensurepip --disable-test-modules \
+            --with-system-expat \
             --with-platlibdir=lib \
             MODULE_BUILDTYPE=static
         make -j"$JOBS"
         make install
         # Built-in modules put their objects in libpython, but the helper
-        # archives they need (libmpdec, bundled expat, HACL*) stay in the build
+        # archives they need (libmpdec, HACL*) stay in the build
         # tree: CPython only adds them (MODLIBS) when linking its own
         # executable, and python-embed.pc does not list them. Merge them so
         # libpython is self-contained for the player link.

@@ -155,10 +155,11 @@ link_directories("${UPBGE_ANDROID_DEPS_PREFIX}/lib")
 # needs libintl, and so on. pkg-config --static knows the closure; every archive
 # it names that exists in the prefix is added to the player. lld resolves archives
 # in any order and pulls only members that satisfy an undefined symbol, so the
-# extra entries cost link time, nothing at run time. sqlite3 is listed on its own:
-# CPython links _sqlite3's library (MODLIBS) but python-embed.pc omits it.
+# extra entries cost link time, nothing at run time. sqlite3 and expat are listed
+# on their own: CPython links them for _sqlite3 and pyexpat (MODLIBS), but
+# python-embed.pc omits them.
 set(UPBGE_ANDROID_LINK_CLOSURE_MODULES
-  sndfile python-3.13-embed sqlite3 freetype2 OpenImageIO OpenColorIO OpenEXR
+  sndfile python-3.13-embed sqlite3 expat freetype2 OpenImageIO OpenColorIO OpenEXR
   libavformat libavcodec libavdevice libavfilter libswscale libswresample libavutil
   openal fftw3f fftw3 libtiff-4 libwebp libpng libjpeg zlib libzstd epoxy
 )
