@@ -3,7 +3,8 @@
     <!--
       App label shown by the Android launcher.
       The future add-on can override this by patching the APK's resources
-      with the game's name (aapt2 compile + link with --rename-manifest-package).
+      with the game's name (aapt2 compile, then link with rename-manifest-package).
+      XML comments must not contain a double hyphen.
     -->
     <string name="app_name">UPBGE Player</string>
 </resources>
