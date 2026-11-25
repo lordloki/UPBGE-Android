@@ -26,4 +26,14 @@ recipe_shaderc() {
     # shared library removed above. Point it at the combined archive.
     cp -f "$DEPS_PREFIX/lib/pkgconfig/shaderc_combined.pc" \
           "$DEPS_PREFIX/lib/pkgconfig/shaderc.pc"
+    # vk_shader_compiler.cc includes spirv/unified1/spirv.h, which the shaderc
+    # install does not provide. Copy the SPIRV-Headers revision shaderc was
+    # built against, so Blender's SPIR-V patching matches its output.
+    local spirv_inc="$src/third_party/spirv-headers/include/spirv"
+    [ -f "$spirv_inc/unified1/spirv.h" ] || {
+        echo "shaderc dependency sync did not provide SPIRV-Headers" >&2
+        return 1
+    }
+    rm -rf "$DEPS_PREFIX/include/spirv"
+    cp -R "$spirv_inc" "$DEPS_PREFIX/include/"
 }
