@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # deps/recipes/zstd.sh
 recipe_zstd() {
-    local ver="1.5.6"
+    local ver="1.5.7"
     local src="$SRC_DIR/zstd-$ver"
     download_and_extract \
         "https://github.com/facebook/zstd/releases/download/v$ver/zstd-$ver.tar.gz" \

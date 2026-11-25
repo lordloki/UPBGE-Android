@@ -4,7 +4,7 @@
 # Same options as Blender's build_environment (freetype.cmake): Brotli for
 # WOFF2, zlib, no PNG/HarfBuzz/BZip2.
 recipe_freetype() {
-    local ver="2.13.2"
+    local ver="2.13.3"
     local src="$SRC_DIR/freetype-$ver"
     download_and_extract \
         "https://downloads.sourceforge.net/freetype/freetype-$ver.tar.gz" \

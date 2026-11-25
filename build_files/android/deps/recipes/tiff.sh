@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # TIFF library, zlib + JPEG codecs only (Blender's build_environment set).
 recipe_tiff() {
-    local ver=4.6.0
+    local ver=4.7.1
     local src="$SRC_DIR/tiff-$ver"
     download_and_extract "https://download.osgeo.org/libtiff/tiff-$ver.tar.gz" "$src"
     # Codec options carry no "tiff-" prefix in libtiff 4.6 (cmake/*Codec.cmake);

@@ -48,7 +48,8 @@ Cross-compile the UPBGE dependency prefix for Android (player-only).
 
 Completed recipes are skipped on the next run (stamps in
 $BUILD_DIR_BASE/.stamps). A stamp is invalidated when the recipe, the
-shared helpers or the toolchain file change.
+shared helpers, the toolchain file, the NDK or any dependency (RECIPE_DEPS)
+change.
 
 Outputs:
   $DEPS_PREFIX/lib/*.a
@@ -137,9 +138,16 @@ step() {
 # c++_static, so objects built against two libc++ versions must never mix.
 NDK_PROPERTIES="$ANDROID_NDK_HOME/source.properties"
 [ -f "$NDK_PROPERTIES" ] || { echo "not an NDK (no source.properties): $ANDROID_NDK_HOME" >&2; exit 1; }
+# A dependency's hash is folded in too: its headers and archives are baked
+# into this recipe's objects, so rebuilding it must rebuild the consumers.
 recipe_hash() {
-    cat "$RECIPES_DIR/$1.sh" "$RECIPES_DIR/_helpers.sh" "$DEPS_TOOLCHAIN" "$NDK_PROPERTIES" \
-        | sha256sum | cut -d' ' -f1
+    local r="$1" d deps=""
+    for d in ${RECIPE_DEPS[$r]:-}; do
+        [ -n "${RECIPE_HASH[$d]:-}" ] || fail "recipe $r depends on $d, which is not listed before it"
+        deps+="${RECIPE_HASH[$d]}"
+    done
+    { cat "$RECIPES_DIR/$r.sh" "$RECIPES_DIR/_helpers.sh" "$DEPS_TOOLCHAIN" "$NDK_PROPERTIES"
+      printf '%s' "$deps"; } | sha256sum | cut -d' ' -f1
 }
 
 # Load common helpers before individual recipes.
@@ -196,6 +204,24 @@ RECIPES=(
     android_extra   # log, android_native_app_glue
 )
 
+# Direct dependencies inside the prefix. Every recipe sees the whole prefix,
+# so list what its build finds there (headers, archives, CMake configs), not
+# only what it links. A dependency must appear earlier in RECIPES.
+declare -A RECIPE_DEPS=(
+    [libpng]="zlib"
+    [freetype]="zlib brotli"
+    [python]="zlib sqlite gettext"
+    [tiff]="zlib libjpeg"
+    [openexr]="zlib openjph"
+    [flac]="ogg"
+    [vorbis]="ogg"
+    [sndfile]="ogg flac vorbis opus"
+    [minizipng]="zlib"
+    [opencolorio]="zlib expat yamlcpp pystring minizipng openexr"
+    [openimageio]="zlib libjpeg libpng tiff openexr opencolorio fmt robinmap"
+    [vulkan_loader]="vulkan_headers"
+)
+
 # -----------------------------------------------------------------------------
 # Run
 # -----------------------------------------------------------------------------
@@ -210,6 +236,12 @@ if [ -n "$ONLY" ] && [[ " ${RECIPES[*]} " != *" $ONLY "* ]]; then
     fail "--only $ONLY: not in the active recipe list"
 fi
 
+# Hashes are computed in list order, so a dependency's hash is always ready.
+declare -A RECIPE_HASH=()
+for r in "${RECIPES[@]}"; do
+    RECIPE_HASH[$r]="$(recipe_hash "$r")"
+done
+
 for r in "${RECIPES[@]}"; do
     if [ -n "$ONLY" ] && [ "$r" != "$ONLY" ]; then
         continue
@@ -219,7 +251,7 @@ for r in "${RECIPES[@]}"; do
         fail "recipe file missing: $recipe_file"
     fi
     stamp="$STAMP_DIR/${r}.done"
-    hash="$(recipe_hash "$r")"
+    hash="${RECIPE_HASH[$r]}"
     if [ "$FORCE" -eq 0 ] && [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$hash" ]; then
         log "--- ${r} (up to date)"
         continue
