@@ -97,12 +97,16 @@ function(add_executable name)
   endif()
 endfunction()
 
-# --- libutil, libpthread ---------------------------------------------------------
-# platform_unix.cmake links -lutil and extern/audaspace links -lpthread
-# unconditionally; Bionic has neither library (openpty() and the pthread API
-# are in libc). Empty archives satisfy the linker.
+# --- Empty link stubs -----------------------------------------------------------
+# Libraries Blender's CMake names unconditionally but that do not exist here.
+# An empty archive satisfies the linker:
+#  - util, pthread: platform_unix.cmake links -lutil and extern/audaspace links
+#    -lpthread; Bionic has neither (openpty() and pthreads are in libc).
+#  - audaspace-py: WITH_PYTHON_NUMPY is OFF, so audaspace skips its Python
+#    binding, yet dependency_targets.cmake still links it by name whenever
+#    WITH_PYTHON is ON. Nothing references its symbols (see README, TODO).
 set(_upbge_android_stubs "${CMAKE_BINARY_DIR}/android_stubs")
-foreach(_lib util pthread)
+foreach(_lib util pthread audaspace-py)
   if(NOT EXISTS "${_upbge_android_stubs}/lib${_lib}.a")
     file(WRITE "${_upbge_android_stubs}/lib${_lib}.a" "!<arch>\n")
   endif()

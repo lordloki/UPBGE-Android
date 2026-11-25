@@ -117,6 +117,21 @@ Everything else stays as upstream UPBGE. When the add-on wraps the bundle with a
 game, the game logic (Python controllers, logic bricks, actuators) is what
 defines the UX — not the editor chrome.
 
+## TODO
+
+- **`aud` Python module.** Android builds with `WITH_PYTHON_NUMPY=OFF`, and
+  audaspace only builds its Python binding (`audaspace-py`) with NumPy. The
+  player therefore ships without `import aud`, and the `sound` attribute of
+  `SCA_SoundActuator` is unavailable from Python; Sound actuators driven by
+  logic bricks are unaffected. `-laudaspace-py` is satisfied by an empty stub
+  in `cmake/upbge_android_project.cmake`. To restore it, either:
+  - make NumPy optional in `extern/audaspace/bindings/python` (only
+    `Sound.data()`, `Sound.buffer()` and the property arrays need it) and relax
+    the NumPy requirement in its CMake and in bpy's `WITH_AUDASPACE_PY` rule; or
+  - cross-compile NumPy for Android and set `WITH_PYTHON_NUMPY=ON`.
+
+  Either way, remove the `audaspace-py` stub afterwards.
+
 ## License
 
 UPBGE and Blender are GPL-3.0. The scripts in this repository are also GPL-3.0
