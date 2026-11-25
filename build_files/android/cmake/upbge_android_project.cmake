@@ -97,13 +97,17 @@ function(add_executable name)
   endif()
 endfunction()
 
-# --- libutil --------------------------------------------------------------------
-# platform_unix.cmake links -lutil unconditionally; Bionic has no libutil
-# (openpty() and friends are in libc). An empty archive satisfies the linker.
+# --- libutil, libpthread ---------------------------------------------------------
+# platform_unix.cmake links -lutil and extern/audaspace links -lpthread
+# unconditionally; Bionic has neither library (openpty() and the pthread API
+# are in libc). Empty archives satisfy the linker.
 set(_upbge_android_stubs "${CMAKE_BINARY_DIR}/android_stubs")
-if(NOT EXISTS "${_upbge_android_stubs}/libutil.a")
-  file(WRITE "${_upbge_android_stubs}/libutil.a" "!<arch>\n")
-endif()
+foreach(_lib util pthread)
+  if(NOT EXISTS "${_upbge_android_stubs}/lib${_lib}.a")
+    file(WRITE "${_upbge_android_stubs}/lib${_lib}.a" "!<arch>\n")
+  endif()
+endforeach()
+unset(_lib)
 link_directories("${_upbge_android_stubs}")
 
 # --- oiiotool ------------------------------------------------------------------
