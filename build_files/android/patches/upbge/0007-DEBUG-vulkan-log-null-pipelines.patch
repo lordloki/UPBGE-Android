@@ -1,0 +1,87 @@
+TEMPORARY DEBUG: log graphics/compute pipelines that fail to build.
+
+Blender-owned file; the hunk is Android only (#ifdef __ANDROID__).
+Remove this patch once the Mali null-pipeline crash is understood.
+
+vk_pipeline_pool.cc ignores the VkResult of every vkCreateGraphicsPipelines /
+vkCreateComputePipelines call, so a failed creation is bound later as
+VK_NULL_HANDLE and crashes inside the driver (vkCmdBindPipeline). Log the
+pipeline name and whether graphics pipeline libraries are in use.
+
+Applies independently of 0001-0006.
+
+diff --git a/source/blender/gpu/vulkan/vk_pipeline_pool.cc b/source/blender/gpu/vulkan/vk_pipeline_pool.cc
+index 34f176f..63553ae 100644
+--- a/source/blender/gpu/vulkan/vk_pipeline_pool.cc
++++ b/source/blender/gpu/vulkan/vk_pipeline_pool.cc
+@@ -21,6 +21,22 @@
+ #include "vk_graphics_pipeline.hh"
+ #include "vk_pipeline_pool.hh"
+ 
++/* TEMPORARY DEBUG (Android bring-up): vkCreateGraphicsPipelines results are
++ * ignored, so a failed creation binds VK_NULL_HANDLE later. Log it. */
++#ifdef __ANDROID__
++#  include <android/log.h>
++#  define UPBGE_DBG_PIPELINE(pipeline, name) \
++    if ((pipeline) == VK_NULL_HANDLE) { \
++      __android_log_print(ANDROID_LOG_ERROR, \
++                          "UPBGE", \
++                          "vkCreateGraphicsPipelines -> VK_NULL_HANDLE for '%s' (GPL %s)", \
++                          (name).c_str(), \
++                          VKBackend::get().device.extensions_get().graphics_pipeline_library ? "on" : "off"); \
++    }
++#else
++#  define UPBGE_DBG_PIPELINE(pipeline, name)
++#endif
++
+ namespace blender {
+ 
+ #ifdef WITH_BUILDINFO
+@@ -116,6 +132,7 @@ VkPipeline VKPipelineMap<VKComputeInfo>::create(const VKComputeInfo &compute_inf
+                                             &pipeline);
+   double end_time = BLI_time_now_seconds();
+   debug::object_label(pipeline, name);
++  UPBGE_DBG_PIPELINE(pipeline, name);
+   CLOG_DEBUG(&LOG,
+              "Compiled compute pipeline %s in %fms ",
+              name.c_str(),
+@@ -170,6 +187,7 @@ static VkPipeline create_graphics_pipeline_no_libs(const VKGraphicsInfo &graphic
+                                              &pipeline);
+   double end_time = BLI_time_now_seconds();
+   debug::object_label(pipeline, name);
++  UPBGE_DBG_PIPELINE(pipeline, name);
+   CLOG_DEBUG(&LOG,
+              "Compiled graphics pipeline %s in %fms ",
+              name.c_str(),
+@@ -226,6 +244,7 @@ static VkPipeline create_graphics_pipeline_libs(const VKGraphicsInfo &graphics_i
+       device.vk_handle(), vk_pipeline_cache, 1, &linking_pipeline_create_info, nullptr, &pipeline);
+   double end_time = BLI_time_now_seconds();
+   debug::object_label(pipeline, name);
++  UPBGE_DBG_PIPELINE(pipeline, name);
+   CLOG_TRACE(&LOG,
+              "Linking graphics pipeline %s in %fms ",
+              name.c_str(),
+@@ -525,6 +544,7 @@ VkPipeline VKPipelineMap<VKGraphicsInfo::VertexIn>::create(
+                                              &pipeline);
+   double end_time = BLI_time_now_seconds();
+   debug::object_label(pipeline, name);
++  UPBGE_DBG_PIPELINE(pipeline, name);
+   CLOG_TRACE(&LOG, "Compiled vertex input library in %fms ", (end_time - start_time) * 1000.0);
+   return pipeline;
+ }
+@@ -566,6 +586,7 @@ VkPipeline VKPipelineMap<VKGraphicsInfo::Shaders>::create(
+                                              &pipeline);
+   double end_time = BLI_time_now_seconds();
+   debug::object_label(pipeline, name);
++  UPBGE_DBG_PIPELINE(pipeline, name);
+   CLOG_TRACE(&LOG, "Compiled shaders library in %fms ", (end_time - start_time) * 1000.0);
+   return pipeline;
+ }
+@@ -606,6 +627,7 @@ VkPipeline VKPipelineMap<VKGraphicsInfo::FragmentOut>::create(
+                                              &pipeline);
+   double end_time = BLI_time_now_seconds();
+   debug::object_label(pipeline, name);
++  UPBGE_DBG_PIPELINE(pipeline, name);
+   CLOG_TRACE(&LOG, "Compiled fragment output library in %fms ", (end_time - start_time) * 1000.0);
+   return pipeline;
+ }
