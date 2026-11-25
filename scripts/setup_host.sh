@@ -92,7 +92,8 @@ install_debian() {
         python3 python3-pip python3-venv \
         openjdk-17-jdk-headless \
         pkg-config autoconf automake libtool bison flex \
-        file texinfo ca-certificates
+        file texinfo ca-certificates \
+        zlib1g-dev
     run_sudo update-alternatives --install /usr/bin/gcc    gcc    /usr/bin/gcc-14    100 || true
     run_sudo update-alternatives --install /usr/bin/g++    g++    /usr/bin/g++-14    100 || true
     run_sudo update-alternatives --install /usr/bin/clang  clang  /usr/bin/clang-17  100 || true
@@ -148,7 +149,8 @@ install_opensuse() {
         python3 python3-pip \
         java-17-openjdk-devel \
         pkgconf autoconf automake libtool bison flex \
-        file texinfo bzip2 xz
+        file texinfo bzip2 xz \
+        zlib-devel
 
     # Leap's system gcc is 7; point /usr/bin/gcc at gcc-14 there. Tumbleweed's
     # system gcc is already >= 14 and owned by the gcc package: leave it alone.
@@ -183,7 +185,8 @@ install_fedora() {
         python3 python3-pip \
         java-17-openjdk-devel \
         pkgconf-pkg-config autoconf automake libtool bison flex \
-        file texinfo ca-certificates
+        file texinfo ca-certificates \
+        zlib-devel
     # Fedora has /usr/bin/gcc, /usr/bin/clang as the real binaries.
     if [ -d /usr/lib/jvm/java-17-openjdk ]; then
         JAVA_HOME_OUT="/usr/lib/jvm/java-17-openjdk"
