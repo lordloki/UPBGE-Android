@@ -1,0 +1,133 @@
+Vulkan: skip draws and dispatches whose pipeline failed to compile.
+
+Blender-owned files; each hunk is enclosed in "UPBGE - Android" comments.
+Not Android specific: any driver can fail to compile a heavy shader.
+
+VKPipelinePool ignores the VkResult of vkCreate*Pipelines, so a failed
+compilation leaves VK_NULL_HANDLE in the node's pipeline data and the render
+graph binds it. On Mali r49p1 the EEVEE deferred light pipelines fail with
+VK_ERROR_INITIALIZATION_FAILED and vkCmdBindPipeline(VK_NULL_HANDLE) crashes
+libGLES_mali.so in the submission thread.
+
+The six draw/dispatch nodes now return before touching any state when the
+pipeline is null. The bound state tracking (VKBoundPipelines) is not updated,
+so it stays in sync with the command buffer and the next valid node rebinds
+whatever it needs. Cost: one compare per node while building commands.
+
+The affected pass is missing from the frame instead of crashing the player.
+Failed pipelines are only reported by the temporary 0007 patch.
+
+Independent of 0001-0009.
+
+diff --git a/source/blender/gpu/vulkan/render_graph/nodes/vk_dispatch_indirect_node.hh b/source/blender/gpu/vulkan/render_graph/nodes/vk_dispatch_indirect_node.hh
+index b2a90e5..08d024a 100644
+--- a/source/blender/gpu/vulkan/render_graph/nodes/vk_dispatch_indirect_node.hh
++++ b/source/blender/gpu/vulkan/render_graph/nodes/vk_dispatch_indirect_node.hh
+@@ -76,6 +76,13 @@ class VKDispatchIndirectNode
+                       Span<uint8_t> storage_push_constants,
+                       VKBoundPipelines &r_bound_pipelines) override
+   {
++    /* UPBGE - Android: VKPipelinePool ignores the vkCreateComputePipelines result, so a
++     * pipeline the driver failed to compile is VK_NULL_HANDLE. Binding it crashes some
++     * drivers. Drop the dispatch; bound state is left untouched. */
++    if (data.pipeline_data.vk_pipeline == VK_NULL_HANDLE) {
++      return;
++    }
++    /* UPBGE - Android */
+     vk_pipeline_data_build_commands(command_buffer,
+                                     data.pipeline_data,
+                                     storage_push_constants,
+diff --git a/source/blender/gpu/vulkan/render_graph/nodes/vk_dispatch_node.hh b/source/blender/gpu/vulkan/render_graph/nodes/vk_dispatch_node.hh
+index af32716..c811e03 100644
+--- a/source/blender/gpu/vulkan/render_graph/nodes/vk_dispatch_node.hh
++++ b/source/blender/gpu/vulkan/render_graph/nodes/vk_dispatch_node.hh
+@@ -69,6 +69,13 @@ class VKDispatchNode : public VKNodeInfo<VKNodeType::DISPATCH,
+                       Span<uint8_t> storage_push_constants,
+                       VKBoundPipelines &r_bound_pipelines) override
+   {
++    /* UPBGE - Android: VKPipelinePool ignores the vkCreateComputePipelines result, so a
++     * pipeline the driver failed to compile is VK_NULL_HANDLE. Binding it crashes some
++     * drivers. Drop the dispatch; bound state is left untouched. */
++    if (data.pipeline_data.vk_pipeline == VK_NULL_HANDLE) {
++      return;
++    }
++    /* UPBGE - Android */
+     vk_pipeline_data_build_commands(command_buffer,
+                                     data.pipeline_data,
+                                     storage_push_constants,
+diff --git a/source/blender/gpu/vulkan/render_graph/nodes/vk_draw_indexed_indirect_node.hh b/source/blender/gpu/vulkan/render_graph/nodes/vk_draw_indexed_indirect_node.hh
+index 15c7054..91f08c4 100644
+--- a/source/blender/gpu/vulkan/render_graph/nodes/vk_draw_indexed_indirect_node.hh
++++ b/source/blender/gpu/vulkan/render_graph/nodes/vk_draw_indexed_indirect_node.hh
+@@ -93,6 +93,14 @@ class VKDrawIndexedIndirectNode
+                       Span<uint8_t> storage_push_constants,
+                       VKBoundPipelines &r_bound_pipelines) override
+   {
++    /* UPBGE - Android: VKPipelinePool ignores the vkCreateGraphicsPipelines result, so a
++     * pipeline the driver failed to compile is VK_NULL_HANDLE (Mali r49: EEVEE deferred light).
++     * Binding it crashes the driver. Drop the draw; bound state is left untouched so the
++     * cached state tracking stays in sync with the command buffer. */
++    if (data.graphics.pipeline_data.vk_pipeline == VK_NULL_HANDLE) {
++      return;
++    }
++    /* UPBGE - Android */
+     vk_pipeline_dynamic_graphics_build_commands(command_buffer, data.graphics, r_bound_pipelines);
+     vk_pipeline_data_build_commands(command_buffer,
+                                     data.graphics.pipeline_data,
+diff --git a/source/blender/gpu/vulkan/render_graph/nodes/vk_draw_indexed_node.hh b/source/blender/gpu/vulkan/render_graph/nodes/vk_draw_indexed_node.hh
+index dd2b2a2..8714e38 100644
+--- a/source/blender/gpu/vulkan/render_graph/nodes/vk_draw_indexed_node.hh
++++ b/source/blender/gpu/vulkan/render_graph/nodes/vk_draw_indexed_node.hh
+@@ -91,6 +91,14 @@ class VKDrawIndexedNode : public VKDrawNodeInfo<VKNodeType::DRAW_INDEXED,
+                       Span<uint8_t> storage_push_constants,
+                       VKBoundPipelines &r_bound_pipelines) override
+   {
++    /* UPBGE - Android: VKPipelinePool ignores the vkCreateGraphicsPipelines result, so a
++     * pipeline the driver failed to compile is VK_NULL_HANDLE (Mali r49: EEVEE deferred light).
++     * Binding it crashes the driver. Drop the draw; bound state is left untouched so the
++     * cached state tracking stays in sync with the command buffer. */
++    if (data.graphics.pipeline_data.vk_pipeline == VK_NULL_HANDLE) {
++      return;
++    }
++    /* UPBGE - Android */
+     vk_pipeline_dynamic_graphics_build_commands(command_buffer, data.graphics, r_bound_pipelines);
+     vk_pipeline_data_build_commands(command_buffer,
+                                     data.graphics.pipeline_data,
+diff --git a/source/blender/gpu/vulkan/render_graph/nodes/vk_draw_indirect_node.hh b/source/blender/gpu/vulkan/render_graph/nodes/vk_draw_indirect_node.hh
+index fd70234..4180668 100644
+--- a/source/blender/gpu/vulkan/render_graph/nodes/vk_draw_indirect_node.hh
++++ b/source/blender/gpu/vulkan/render_graph/nodes/vk_draw_indirect_node.hh
+@@ -86,6 +86,14 @@ class VKDrawIndirectNode : public VKDrawNodeInfo<VKNodeType::DRAW_INDIRECT,
+                       Span<uint8_t> storage_push_constants,
+                       VKBoundPipelines &r_bound_pipelines) override
+   {
++    /* UPBGE - Android: VKPipelinePool ignores the vkCreateGraphicsPipelines result, so a
++     * pipeline the driver failed to compile is VK_NULL_HANDLE (Mali r49: EEVEE deferred light).
++     * Binding it crashes the driver. Drop the draw; bound state is left untouched so the
++     * cached state tracking stays in sync with the command buffer. */
++    if (data.graphics.pipeline_data.vk_pipeline == VK_NULL_HANDLE) {
++      return;
++    }
++    /* UPBGE - Android */
+     vk_pipeline_dynamic_graphics_build_commands(command_buffer, data.graphics, r_bound_pipelines);
+     vk_pipeline_data_build_commands(command_buffer,
+                                     data.graphics.pipeline_data,
+diff --git a/source/blender/gpu/vulkan/render_graph/nodes/vk_draw_node.hh b/source/blender/gpu/vulkan/render_graph/nodes/vk_draw_node.hh
+index 28bcb7d..4437840 100644
+--- a/source/blender/gpu/vulkan/render_graph/nodes/vk_draw_node.hh
++++ b/source/blender/gpu/vulkan/render_graph/nodes/vk_draw_node.hh
+@@ -85,6 +85,14 @@ class VKDrawNode : public VKDrawNodeInfo<VKNodeType::DRAW,
+                       Span<uint8_t> storage_push_constants,
+                       VKBoundPipelines &r_bound_pipelines) override
+   {
++    /* UPBGE - Android: VKPipelinePool ignores the vkCreateGraphicsPipelines result, so a
++     * pipeline the driver failed to compile is VK_NULL_HANDLE (Mali r49: EEVEE deferred light).
++     * Binding it crashes the driver. Drop the draw; bound state is left untouched so the
++     * cached state tracking stays in sync with the command buffer. */
++    if (data.graphics.pipeline_data.vk_pipeline == VK_NULL_HANDLE) {
++      return;
++    }
++    /* UPBGE - Android */
+     vk_pipeline_dynamic_graphics_build_commands(command_buffer, data.graphics, r_bound_pipelines);
+     vk_pipeline_data_build_commands(command_buffer,
+                                     data.graphics.pipeline_data,
