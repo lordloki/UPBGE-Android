@@ -27,6 +27,10 @@ recipe_python() {
         # Use the selected host compiler: the system default `cc` may be newer
         # than this CPython release was tested with.
         ( cd "$host_build"
+          # build.sh points PKG_CONFIG_LIBDIR at the Android prefix; configure
+          # would then hand -L<arm64 prefix> -lz to the host linker. The host
+          # interpreter must only see host libraries: restore the default path.
+          unset PKG_CONFIG_LIBDIR
           CC="${HOST_CC:-cc}" "$src/configure" --prefix="$host_prefix" \
               --without-ensurepip --disable-test-modules
           make -j"$JOBS"
